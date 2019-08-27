@@ -4,9 +4,13 @@ import time
 import pandas as pd
 from tqdm import tqdm
 import sys
+import os
 
-API_KEY = "e8c2a097b59940eb806cf41b6471e840"
-ENDPOINT = "https://noteastynotfree.cognitiveservices.azure.com/bing/v7.0/spellcheck"
+try:
+    API_KEY = os.environ['AZURE_SP_KEY']
+    ENDPOINT = os.environ['AZURE_SP_END_POINT']
+except KeyError:
+    raise OSError(strerror="enviroment variables: AZURE_SP_KEY and AZURE_SP_END_POINT should be set up")
 
 def get_json_response(text: str):
     data = {'text': text}
