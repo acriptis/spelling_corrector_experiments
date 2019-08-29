@@ -57,6 +57,25 @@ class Lettercaser(object):
         return self.cases[case](token)
 
 class LettercaserForSpellchecker(Lettercaser):
+    """
+    It restores cases in sentence looking to reference sentence.
+    It can process sentences with difference size, alignment is based on
+    Levenstein distance.
+
+    Args:
+        cases: dictionary that describes map,
+               name of lettercase -> func that takes str and convert it in certain lettercase
+        default_case: func: str->str that define transformation of string,
+                      when lettercase was not be detected in 'put_in_case' func
+    Attributes:
+        cases: dictionary that describes map,
+               name of lettercase -> func that takes str and convert it in certain lettercase
+        default_case: func: str->str that define transformation of string,
+                      when lettercase was not be detected in 'put_in_case' func
+        aligment_func: function takes tokenized source sentence and tokenized correct sentence
+                       and returns list of index bounders of best alignment
+                       for example: [нукакто, так] [ну, как-то, так] -> [((0, 1), (0, 2)), ((1, 2), (2, 3))]
+    """
 
     def __init__(self, cases: dict = None, default_case = None):
         super().__init__(cases, default_case)
@@ -74,7 +93,7 @@ class LettercaserForSpellchecker(Lettercaser):
                     len(range(*s_border)) > 1: # one by many
                 for c_idx in range(*c_border):
                     correct_cases[c_idx] = source_cases[s_border[0]]
-            elif len(range(*c_border)) > 1:
+            elif len(range(*c_border)) > 1: # many by any
                 if all([source_cases[i] == 'upper' for i in range(*s_border)]):
                     for c_idx in range(*c_border):
                         correct_cases[c_idx] = 'upper'
@@ -94,4 +113,4 @@ if __name__ == '__main__':
     letter = LettercaserForSpellchecker()
     print(letter(['Тут есть КТО НИБУДЬ'.split()], ['тут есть кто-нибудь'.split()]))
     print(letter(['Это происходит По сейдень'.split()], ['это происходит посей день'.split()]))
-    print(letter(['По моему'.split()], ['по-моему'.split()]))
+    print(letter(['По-моему'.split()], ['по моему'.split()]))
