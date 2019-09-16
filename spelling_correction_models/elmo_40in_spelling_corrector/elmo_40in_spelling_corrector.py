@@ -57,12 +57,14 @@ class ELMO40inSpellingCorrector():
 
     def __init__(self, language_model=None, spelling_correction_candidates_generator=None,
                  fix_treshold=10.0, max_num_fixes=5):
+        print("Init LetterCaser.")
         self._lettercaser = LettercaserForSpellchecker()
+        print("Init language_model.")
         if language_model:
             self.lm = language_model
         else:
             self.lm = self._init_elmo()
-
+        print("Init spelling_correction_candidates_generator.")
         if spelling_correction_candidates_generator:
             self.sccg = spelling_correction_candidates_generator
         else:
@@ -73,6 +75,7 @@ class ELMO40inSpellingCorrector():
 
         # minimal likelihood advantage treshold for fixing the sentence
         self.fix_treshold = fix_treshold
+        print("Initialization Completed.")
 
     def _init_elmo(self):
         """
@@ -125,7 +128,7 @@ class ELMO40inSpellingCorrector():
 
     def _init_sccg(self):
         """
-        Initilizes spelling correction candidates generator to generate correction candidates
+        Initilizes Spelling Correction Candidates Generator to generate correction candidates
         :return: instance of spelling correction candidates generator
         """
         # TODO refactor with dynamic dictionary
@@ -134,8 +137,8 @@ class ELMO40inSpellingCorrector():
         # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
 
         with open(path_to_dictionary, "r") as dict_file:
-            words_dict = dict_file.read().splitlines()
-        lsc = LevenshteinSearcherComponent(words=words_dict)
+            self.words_dict = dict_file.read().splitlines()
+        lsc = LevenshteinSearcherComponent(words=self.words_dict)
         return lsc
 
     def preprocess_sentence(self, sentence):
@@ -144,9 +147,10 @@ class ELMO40inSpellingCorrector():
         # TODO depunctuate
         return lowercased_sentence
 
-    def fix_sentence(self, sentence):
+    def process_sentence(self, sentence):
         """
-        given a sentence as string anlyze it, fix it and output the best hypothesis
+        Interface method for sentence correction.
+        Given a sentence as string anlyze it, fix it and output the best hypothesis
         :param sentence: str
         :return: str, sentence with corrections
         """
@@ -155,6 +159,8 @@ class ELMO40inSpellingCorrector():
 
         # analyse sentence
         analysis_dict = self.elmo_analysis_with_probable_candidates_reduction_dict_out(preprocessed_sentence)
+
+        # TODO add support of Nto1 Hypotheses generator which updates analysis dict
 
         # implement the best fixes
         output_sentence = self.fixes_maker(analysis_dict, max_num_fixes=self.max_num_fixes,
@@ -169,6 +175,9 @@ class ELMO40inSpellingCorrector():
         """
         Given a sentence this method analyzes it and returns an analysis dictionary
         with hypotheses of the best substitutions (as scored lists for each token).
+
+        This analysis accounts only fixes that contain 1-1 token conversion (without tokens
+        splitting or merging).
 
         The analysis dictionary allows to make parametrized hypothesis selection at the next stage.
 
@@ -237,7 +246,7 @@ class ELMO40inSpellingCorrector():
         # find the best substitutions in sentence from candidates sets
         candidates_list_for_sentence = candidates_lists[0]
         base_scores = self.lm.trace_sentence_probas_in_elmo_datas_batch([elmo_data], [tok_wrapped])
-        log_probas_base = np.log(base_scores)
+        log_probas_base = np.log10(base_scores)
         # summated_probas_base = log_probas_base.sum(axis=1)
         # TODO check if it is not necessary?
         summated_probas_base = log_probas_base.sum()
@@ -333,12 +342,15 @@ class ELMO40inSpellingCorrector():
             output_str = " ".join(tokens)
         return output_str
 
+    def analyze_sentence(self, sentence):
+        return self.elmo_analysis_with_probable_candidates_reduction_dict_out(sentence)
+
     ##############################################################################################
     def __call__(self, input_sentences_batch):
         # TODO make optimized parallelization
         # optimization must be done at stage of ELMO calculation + analysis_dict construction
         #
-        return [self.fix_sentence(each_sentence) for each_sentence in input_sentences_batch]
+        return [self.process_sentence(each_sentence) for each_sentence in input_sentences_batch]
 
 
 if __name__ == '__main__':

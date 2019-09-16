@@ -36,7 +36,7 @@ class ELMOLM(object):
         return numerator / denominator
 
     def _unite_distr(self, elmo_distr):
-        elmo_distr = np.log(elmo_distr)
+        elmo_distr = np.log10(elmo_distr)
         elmo_distr = np.sum(elmo_distr, axis=1)
         elmo_distr = elmo_distr - self.scores_of_elmo_vocab_by_kenlm
         return self._softmax(elmo_distr, axis=1)
@@ -72,7 +72,7 @@ class ELMOLM(object):
             for num_token, idx_token in enumerate(idx_sent):
                 multiplier = self.PENALTY_UNK if idx_token == self.UNK_INDEX else 1
                 p_sent.append(multiplier * elmo_distr_united[num_sent][num_token, idx_token])
-            p_minibatch.append(np.sum(np.log(p_sent)))
+            p_minibatch.append(np.sum(np.log10(p_sent)))
         return p_minibatch
 
     def _estimate_likelihood_minibatch(self, minibatch: List[List[str]], is_wrap_spec_sym: bool = True):
@@ -125,7 +125,7 @@ class ELMO_LM_one_track(ELMOLM):
                 for num_token, idx_token in enumerate(idx_hyp):
                     multiplier = self.PENALTY_UNK if idx_token == self.UNK_INDEX else 1
                     p_hyp.append(multiplier * self.saved_elmo_distr[num_sent][num_token, idx_token])
-                p_hyps.append(np.sum(np.log(p_hyp)))
+                p_hyps.append(np.sum(np.log10(p_hyp)))
             p_minibatch.append(p_hyps)
         return p_minibatch
 
