@@ -233,6 +233,10 @@ class ELMO40inSpellingCorrector():
             ]
 
         """
+        # due to computational error 0.0 advantage may occur as small negative number,
+        # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
+        # so we need to grasp them.
+        ZERO_LOWER_BOUND = -1.0e-14
         result_data_dict = {
             'input_sentence': sentence
         }
@@ -283,14 +287,21 @@ class ELMO40inSpellingCorrector():
                 left_logit, right_logit = self.lm.retrieve_logits_of_particular_token(elmo_data,
                                                                                    tok_idx,
                                                                                    candidate_str)
-                # todo add error score?
+                # with out error score
                 advantage_score = -base_summa + left_logit + right_logit
+                # with error score
+                # advantage_score = -base_summa + left_logit + right_logit + error_score
 
-                if advantage_score >= 0:
+                if advantage_score >= ZERO_LOWER_BOUND:
                     word_substitutions_candidates[tok_idx]['top_k_candidates'].append({
                         "advantage": advantage_score,
                         "token_str": candidate_str
                     })
+
+                    # sort them
+            word_substitutions_candidates[tok_idx]['top_k_candidates'] = sorted(word_substitutions_candidates[tok_idx]['top_k_candidates'],
+                                                           key=lambda x: x['advantage'],
+                                                           reverse=True)
 
         result_data_dict['word_substitutions_candidates'] = word_substitutions_candidates
         return result_data_dict
