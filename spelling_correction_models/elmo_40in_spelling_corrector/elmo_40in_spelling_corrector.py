@@ -17,11 +17,19 @@ import re
 from copy import deepcopy
 DATA_PATH = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
 
+# due to computational error 0.0 advantage may occur as small negative number,
+# usually it is a zero-hypothesis (no need for spelling correction hypothesis),
+# so we need to grasp them.
+ZERO_LOWER_BOUND = -1.0e-14
+
+
 def clean_dialog16_sentences_from_punctuation(sentences):
     """
-    # we need to remove:
+    Cleans sentences list from some punctuation
+
+    We need to remove:
     # ?,() !;"
-    # . if it not in the middle of word
+    # . if it not in the middle of word/sentence
     # - if it not in the middle of word
     # : if it not in the middle of word
 
@@ -49,6 +57,7 @@ def clean_dialog16_sentences_from_punctuation(sentences):
         reassembled_sentence = re.sub(" {2,}", " ", reassembled_sentence)
         output_sentences.append(reassembled_sentence)
     return output_sentences
+
 
 class ELMO40inSpellingCorrector():
     """
@@ -171,6 +180,7 @@ class ELMO40inSpellingCorrector():
 
         return output_sentence
 
+    # deprecated: prefer to use elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out
     def elmo_analysis_with_probable_candidates_reduction_dict_out(self, sentence):
         """
         Given a sentence this method analyzes it and returns an analysis dictionary
@@ -233,10 +243,6 @@ class ELMO40inSpellingCorrector():
             ]
 
         """
-        # due to computational error 0.0 advantage may occur as small negative number,
-        # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
-        # so we need to grasp them.
-        ZERO_LOWER_BOUND = -1.0e-14
         result_data_dict = {
             'input_sentence': sentence
         }
@@ -245,6 +251,86 @@ class ELMO40inSpellingCorrector():
         result_data_dict['tokenized_input_sentence'] = tok_wrapped
 
         elmo_data = self.lm.analyze_sentence(sentence)
+        # elmo data array contains a ndarray of size: [1, len(sentence tokens), 1000000]
+        return self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(result_data_dict, elmo_data)
+
+    def elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(self, sentence_analysis_dict, elmo_data):
+        """
+        Given a sentence this method analyzes it and returns an analysis dictionary
+        with hypotheses of the best substitutions (as scored lists for each token).
+
+        This analysis accounts only fixes that contain 1-1 token conversion (without tokens
+        splitting or merging).
+
+        The analysis dictionary allows to make parametrized hypothesis selection at the next stage.
+        Example of Input:
+        {
+            'input_sentence': 'очень классная тетка ктобы что не говорил',
+            'tokenized_input_sentence': ['<S>',
+                                        'очень',
+                                        'классная',
+                                        'тетка',
+                                        'ктобы',
+                                        'что',
+                                        'не',
+                                        'говорил',
+                                        '</S>'],
+        }
+
+        Example of Output:
+        {
+            "input_sentence": "...",
+            "tokenized_input_sentence": ['<S>',
+                                              'обломно',
+                                              'но',
+                                              'не',
+                                              'сдал',
+                                              'горбачева',
+                                              'но',
+                                              'хочу',
+                                              'сдать',
+                                              'последний',
+                                              'экзам',
+                                              'на',
+                                              '5',
+                                              'тогда',
+                                              'буит',
+                                              'возможно',
+                                              'хоть',
+                                              'ченить',
+                                              'выловить',
+                                              'на',
+                                              'горбачеве',
+                                              '</S>']
+            "word_substitutions_candidates": [
+                {'tok_idx': 0,
+                'top_k_candidates': [
+                        {'token_str': обломно,
+                        'advantage_score': 20.0
+                        },
+                        {'token_str': лапа,
+                        'advantage_score': 21.0
+                        }
+
+                    ]
+                },
+                {'tok_idx': 2,
+                'top_k_candidates': [
+                        {'token_str': но,
+                        'advantage_score': 20.1
+                        },
+                        {'token_str': калал,
+                        'advantage_score': 21.3
+                        }
+
+                    ]
+                }
+
+            ]
+        }
+        """
+        tok_wrapped = sentence_analysis_dict['tokenized_input_sentence']
+
         # elmo data array contains a ndarray of size: [1, len(sentence tokens), 1000000]
         candidates_lists = self.sccg([tok_wrapped])
         # find the best substitutions in sentence from candidates sets
@@ -288,14 +374,25 @@ class ELMO40inSpellingCorrector():
                                                                                    tok_idx,
                                                                                    candidate_str)
                 # with out error score
-                advantage_score = -base_summa + left_logit + right_logit
+                # advantage_score = -base_summa + left_logit + right_logit
                 # with error score
-                # advantage_score = -base_summa + left_logit + right_logit + error_score
+                advantage_score = -base_summa + left_logit + right_logit + error_score
 
-                if advantage_score >= ZERO_LOWER_BOUND:
+                if candidate_str == tok_wrapped[tok_idx]:
+                    # zero hypothesis
                     word_substitutions_candidates[tok_idx]['top_k_candidates'].append({
                         "advantage": advantage_score,
-                        "token_str": candidate_str
+                        "token_str": candidate_str,
+                        "zero_hypothesis": True,
+                        "error_score": 0.0
+                    })
+                elif advantage_score >= ZERO_LOWER_BOUND:
+                    # hypothesis satisfies the policy
+                    word_substitutions_candidates[tok_idx]['top_k_candidates'].append({
+                        "advantage": advantage_score,
+                        "token_str": candidate_str,
+                        "zero_hypothesis": False,
+                        "error_score": error_score
                     })
 
                     # sort them
@@ -303,9 +400,10 @@ class ELMO40inSpellingCorrector():
                                                            key=lambda x: x['advantage'],
                                                            reverse=True)
 
-        result_data_dict['word_substitutions_candidates'] = word_substitutions_candidates
-        return result_data_dict
+        sentence_analysis_dict['word_substitutions_candidates'] = word_substitutions_candidates
+        return sentence_analysis_dict
 
+    #####################################################################
     @staticmethod
     def fixes_maker(analysis_data, max_num_fixes=5, fix_treshold=10.0, remove_s=True):
         """
