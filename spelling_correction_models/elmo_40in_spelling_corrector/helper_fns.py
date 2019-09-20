@@ -219,7 +219,7 @@ class SentenceHypothesis():
                 new_sentence_hypothesis = deepcopy(self)
                 # ############################################################
                 # add a segment suffix to the sentence hypothesis:
-                if idx==1:
+                if start_tok_idx==1:
                     # the first index is the first token in the sentence (0s: <s>) so we dont need
                     # to put a space before it
                     new_sentence_hypothesis.text += each_candidate_dict['token_str']

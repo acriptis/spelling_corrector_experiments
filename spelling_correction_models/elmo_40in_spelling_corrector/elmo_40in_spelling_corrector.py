@@ -21,7 +21,9 @@ DATA_PATH = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
 # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
 # so we need to grasp them.
 ZERO_LOWER_BOUND = -1.0e-14
-
+# when we split token into 2 tokens we hackily over-estimate likelihood from ELMO, so we multiply
+# it with some parameter (logits are negative):
+TOKEN_SPLIT_LOGIT_MULTIPLICATOR = 1.5
 
 def clean_dialog16_sentences_from_punctuation(sentences):
     """
@@ -146,6 +148,8 @@ class ELMO40inSpellingCorrector():
         # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
 
         with open(path_to_dictionary, "r") as dict_file:
+            # to avoid confusion: words_dict is a list of strings (which are words of
+            # language's dictionary)
             self.words_dict = dict_file.read().splitlines()
         lsc = LevenshteinSearcherComponent(words=self.words_dict)
         return lsc
@@ -335,11 +339,11 @@ class ELMO40inSpellingCorrector():
         candidates_lists = self.sccg([tok_wrapped])
         # find the best substitutions in sentence from candidates sets
         candidates_list_for_sentence = candidates_lists[0]
-        base_scores = self.lm.trace_sentence_probas_in_elmo_datas_batch([elmo_data], [tok_wrapped])
-        log_probas_base = np.log10(base_scores)
-        # summated_probas_base = log_probas_base.sum(axis=1)
-        # TODO check if it is not necessary?
-        summated_probas_base = log_probas_base.sum()
+        # base_scores = self.lm.trace_sentence_probas_in_elmo_datas_batch([elmo_data], [tok_wrapped])
+        # log_probas_base = np.log10(base_scores)
+        # # summated_probas_base = log_probas_base.sum(axis=1)
+        # # TODO check if it is not necessary?
+        # summated_probas_base = log_probas_base.sum()
 
         # for each candidate_list by levenshtein find top_k hypothese of susbstitutions in ELMO data
         word_substitutions_candidates = [{'tok_idx': idx, 'top_k_candidates': []} for idx, _ in
@@ -363,39 +367,87 @@ class ELMO40inSpellingCorrector():
             base_summa = base_left_logit + base_right_logit
             # 2. retrieve absolute best for the position
             for each_candidate in levenshtein_candidates_for_current_token:
+
                 # retrieve advantage
                 #             print(each_candidate)
                 candidate_str = each_candidate[1]
+
                 # error score in logits for substitution input into corrected hypohesis:
                 error_score = each_candidate[0]
                 # TODO use  error_score for SCCG which can generate distant fixes
 
-                left_logit, right_logit = self.lm.retrieve_logits_of_particular_token(elmo_data,
+                candidate_dict = {
+                    # advantage of pure language model:
+                    "lm_advantage": None,
+                    # advantage with error score:
+                    "advantage": None,
+
+                    "token_str": candidate_str,
+                    # if it is zero hypothesis
+                    "zero_hypothesis": None,
+                    "error_score": None,
+                    "token_merges": 0,
+                    "token_splits": None
+                }
+
+                if " " in candidate_str:
+                    ###########################################################################
+                    # 1Token->2Tokens Case Generation
+                    ###########################################################################
+                    # if 1tok->2toks occurs we need to handle such hypotheses separately
+                    # print("1tok->2toks hypothesis: %s" % candidate_str)
+                    # TODO make a dirty hack?
+                    # when we have a split of1 token into 2, then we could estimate advantage
+                    # with reduced precision by estimating left word advantage by
+                    # left_probas in elmo_data, and right_word by taking right proba for it.
+                    # check it?
+                    mini_tokens = candidate_str.split()
+                    assert len(mini_tokens) == 2
+                    left_logit, _ = self.lm.retrieve_logits_of_particular_token(elmo_data,
+                                                                                          tok_idx,
+                                                                                          mini_tokens[0])
+                    _, right_logit = self.lm.retrieve_logits_of_particular_token(elmo_data,
+                                                                                tok_idx,
+                                                                                mini_tokens[1])
+                    # provide information that token split occured:
+                    candidate_dict["token_splits"] = 1
+                    # TODO modify likelihoods or error score? otherwise it overestimates
+                    assert left_logit < 0
+                    assert right_logit < 0
+                    # multiply with 1.5 all logits becasue we use hacky over-estimation from ELMO
+
+                    left_logit *= TOKEN_SPLIT_LOGIT_MULTIPLICATOR
+                    right_logit *= TOKEN_SPLIT_LOGIT_MULTIPLICATOR
+                    # with out error score
+                    ###########################################################################
+                else:
+                    left_logit, right_logit = self.lm.retrieve_logits_of_particular_token(elmo_data,
                                                                                    tok_idx,
                                                                                    candidate_str)
                 # with out error score
                 # advantage_score = -base_summa + left_logit + right_logit
                 # with error score
-                advantage_score = -base_summa + left_logit + right_logit + error_score
+                lm_advantage = left_logit + right_logit - base_summa
+                advantage_score = lm_advantage + error_score
+                candidate_dict['lm_advantage'] = lm_advantage
+                candidate_dict['advantage'] = advantage_score
 
                 if candidate_str == tok_wrapped[tok_idx]:
                     # zero hypothesis
-                    word_substitutions_candidates[tok_idx]['top_k_candidates'].append({
-                        "advantage": advantage_score,
-                        "token_str": candidate_str,
-                        "zero_hypothesis": True,
-                        "error_score": 0.0
-                    })
-                elif advantage_score >= ZERO_LOWER_BOUND:
+                    candidate_dict['zero_hypothesis'] = True
+                    candidate_dict['error_score'] = 0.0
+                    word_substitutions_candidates[tok_idx]['top_k_candidates'].append(candidate_dict)
+                # elif advantage_score >= ZERO_LOWER_BOUND:
+                # temporarly filter by lm_advantage only:
+                elif lm_advantage >= ZERO_LOWER_BOUND:
                     # hypothesis satisfies the policy
-                    word_substitutions_candidates[tok_idx]['top_k_candidates'].append({
-                        "advantage": advantage_score,
-                        "token_str": candidate_str,
-                        "zero_hypothesis": False,
-                        "error_score": error_score
-                    })
+                    candidate_dict['zero_hypothesis'] = False
+                    candidate_dict['error_score'] = error_score
 
-                    # sort them
+                    word_substitutions_candidates[tok_idx]['top_k_candidates'].append(candidate_dict)
+                else:
+                    # skip the candidate
+                    pass
             word_substitutions_candidates[tok_idx]['top_k_candidates'] = sorted(word_substitutions_candidates[tok_idx]['top_k_candidates'],
                                                            key=lambda x: x['advantage'],
                                                            reverse=True)

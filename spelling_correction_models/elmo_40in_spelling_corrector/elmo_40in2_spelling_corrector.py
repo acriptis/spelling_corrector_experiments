@@ -2,6 +2,9 @@ import numpy as np
 from .elmo_40in_spelling_corrector import ELMO40inSpellingCorrector
 from .helper_fns import estimate_the_best_s_hypotheses
 
+# increment of the logit for merging 2tokens->1token:
+ERROR_SCORE_FOR_MERGE = -2.0
+
 
 class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
     """
@@ -72,70 +75,25 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
 
         Another case is to make second variation by LevenshteinSearcherComponent
 
-        TODO: make N>1 support. Now only 2to1 merges are hypothesised
+        TODO: make N->1 support. Now only 2->1 merges are hypothesised
         """
         token_hypotheses_dicts = []
-
-        ERROR_SCORE_FOR_MERGE = -2.0
 
         for tok_idx, each_tok in enumerate(wrapped_tokenized_sentence):
             if tok_idx <= 1 or tok_idx == len(wrapped_tokenized_sentence) - 1:
                 # the 0's token is <s> the last is </s>
                 continue
+
+            if len(wrapped_tokenized_sentence[tok_idx-1])==1 or len(wrapped_tokenized_sentence[tok_idx])==1:
+                # RULE of THUMB: don't merge words consisting of 1letter
+                continue
+
             # simple merge hypothesis:
             merge_hypothesis_str = wrapped_tokenized_sentence[tok_idx - 1] + \
                                    wrapped_tokenized_sentence[tok_idx]
-            # # TODO add hyphen merge hypothesis
-            # idx, is_unk = self.lm.get_word_idx_or_unk(merge_hypothesis_str)
-            # if is_unk is False:
-            #     # merged token is known to dictionary, nice hypothesis
-            #     print("Merged TokenHypothesis (%s) is in dictionary!" % merge_hypothesis_str)
-            #     token_start_index = tok_idx - 1
-            #     token_fin_index = tok_idx
-            #     # estimate probas for merged token
-            #     logit_probas = self.get_logit_probas_of_merged_token(elmo_data, merge_hypothesis_str,
-            #                                           token_start_index,
-            #                                      token_fin_index)
-            #     #################################
-            #     # Calculate base score of the span.
-            #     # Base score is a cumulative likelihood score of the input tokens which are
-            #     # related to merged one.
-            #     # TODO collect scores for tokens under merge span
-            #     base_scores = []
-            #     for eac_tok_idx in range(token_start_index, token_fin_index+1):
-            #         base_left_logit, base_right_logit = self.lm.retrieve_logits_of_particular_token(
-            #             elmo_data, tok_idx, wrapped_tokenized_sentence[tok_idx])
-            #         base_scores.append([base_left_logit, base_right_logit])
-            #     base_scores = np.array(base_scores)
-            #     summated_base_scores = base_scores.sum(axis=0)
-            #     #################################
-            #
-            #     out_dict = {
-            #         'tok_idx': (token_start_index, token_fin_index),
-            #         'tok_idx_start': token_start_index,
-            #         'tok_idx_fin': token_fin_index,
-            #
-            #         'top_k_candidates': [
-            #             {
-            #                 'token_str': merge_hypothesis_str,
-            #                 'token_merges': 1,
-            #                 'error_score': ERROR_SCORE_FOR_MERGE,
-            #                 'lm_scores_list': logit_probas,
-            #                 'base_scores': base_scores,
-            #                 'summated_base_scores': summated_base_scores,
-            #                 'advantage': logit_probas.sum() + ERROR_SCORE_FOR_MERGE*2.0 - summated_base_scores.sum()
-            #             }
-            #         ]
-            #     }
-            #
-            #     token_hypotheses_dicts.append(out_dict)
 
             ################################################################################
             # variate merged variant by levenshtein
-            # merge is not in dictionary case:
-            # TODO reduce duplicated code!
-            # print("Warning token is out of VOCABULARY! results may be unreliable!")
-            # merged hypothesis is not in dictionary. Any actions?
             # TODO if no we can variate it with Levenshtein?
             # TODO apply rule based statistical substitutions? чтонить -> что-нибудь etc
             # print("Variate merged hypothesis: %s" % merge_hypothesis_str)
@@ -165,16 +123,23 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
                     base_scores = []
                     for eac_tok_idx in range(token_start_index, token_fin_index + 1):
                         base_left_logit, base_right_logit = self.lm.retrieve_logits_of_particular_token(
-                            elmo_data, tok_idx, wrapped_tokenized_sentence[tok_idx])
+                            elmo_data, eac_tok_idx, wrapped_tokenized_sentence[eac_tok_idx])
+                            # elmo_data, tok_idx, wrapped_tokenized_sentence[tok_idx])
                         base_scores.append([base_left_logit, base_right_logit])
                     base_scores = np.array(base_scores)
                     summated_base_scores = base_scores.sum(axis=0)
+                    error_score = ERROR_SCORE_FOR_MERGE + each_merge_candidate_err_score
                     #################################
 
+                    lm_advantage = logit_probas.sum() - summated_base_scores.sum()
+                    # advantage = lm_advantage + error_score * 2.0
+                    advantage = lm_advantage + error_score
                     out_dict = {
                         'tok_idx': (token_start_index, token_fin_index),
                         'tok_idx_start': token_start_index,
                         'tok_idx_fin': token_fin_index,
+                        # string of source
+                        'source_segment_str': wrapped_tokenized_sentence[tok_idx-1] +" "+ wrapped_tokenized_sentence[tok_idx],
 
                         'top_k_candidates': [
                             {
@@ -182,11 +147,15 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
                                 'token_merges': 1,
                                 # 'error_score': ERROR_SCORE_FOR_MERGE,
                                 # TODO enable error score!
-                                'error_score': ERROR_SCORE_FOR_MERGE + each_merge_candidate_err_score,
-                                'lm_scores_list': logit_probas,
-                                'base_scores': base_scores,
-                                'summated_base_scores': summated_base_scores,
-                                'advantage': logit_probas.sum() + ERROR_SCORE_FOR_MERGE * 2.0 - summated_base_scores.sum()
+                                'levenshtein_variation_err_score': each_merge_candidate_err_score,
+                                # cumulative error (merges and levenshtein)
+                                'error_score': error_score,
+                                'lm_scores_list': logit_probas.tolist(),
+                                'base_scores': base_scores.tolist(),
+                                'summated_base_scores': summated_base_scores.tolist(),
+
+                                'advantage': advantage,
+                                'lm_advantage': lm_advantage
                             }
                         ]
                     }
@@ -212,6 +181,7 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
         # TODO check if right and left probas are correctly located:
         left_logit_prob = np.log10(elmo_data[token_start_index, 0, w_idx])
         right_logit_prob = np.log10(elmo_data[token_fin_index, 1, w_idx])
+        # TODO add support for multiple spans of merges
         return np.array([left_logit_prob, right_logit_prob])
 
     @staticmethod
