@@ -150,7 +150,7 @@ class ELMOLM(object):
         """
         Given an ELMO's parsing data and tokenized sentence the method retrieves
         left and right probabilities of each token of the tokenized sentence
-
+        
         : return is a list of numpy arrays with left and right probas for each word in sentence
         list has length of sentences batch, and each array has length of particular sentence
         and 2 probas for each token

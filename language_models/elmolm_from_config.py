@@ -146,8 +146,8 @@ class ELMOLM():
             magic_multiplicator = self.UNK_DISCOUNTER
 
         left_p, right_p = elmo_data[sentence_position_index, :, idx]
-        left_logit = np.log(left_p * magic_multiplicator)
-        right_logit = np.log(right_p * magic_multiplicator)
+        left_logit = np.log10(left_p * magic_multiplicator)
+        right_logit = np.log10(right_p * magic_multiplicator)
         return left_logit, right_logit
 
 
@@ -169,6 +169,22 @@ class ELMOLM():
         """
         word_idx = self.word_index.get(word)
         return word_idx
+
+    def get_word_idx_or_unk(self, word):
+        """
+        Get a word's index from word string
+        if no word found in dictionary returns UNK index and boolean flag that it is unknown word
+
+        return tuple: (word_index, is_unk) - word_index is an index to be used for the word,
+            is_unk is boolean flag if word will be interpreted as unknown word
+        """
+        is_unk=False
+        idx = self.get_word_idx(word)
+        if not idx:
+            idx = self.word_index.get("<UNK>")
+            is_unk = True
+
+        return idx, is_unk
 
     @staticmethod
     def chunk_generator(items_list, chunk_size):
