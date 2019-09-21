@@ -11,26 +11,34 @@ from deeppavlov.models.tokenizers.lazy_tokenizer import LazyTokenizer
 class ELMOLM(object):
     """
     Class that estimates likelihood of sentence in russian language
+
+    Args:
+        model_dir - path where is contained pretrainde ELMo
+        freq_vocab_path - path where is contained frequency dictionary of elmo vocabulary
+        penalty_for_unk_token - multiplier for token <UNK> when we estimate likelihood of sentence
+        method_of_uniting_distr - {0, 1},
+            0 -- method P(word|united_contex) = (P(word|left_contex) * P(word|right_contex)) / P(word)
+            0 -- method P(word|united_contex) = log(P(word|left_contex) + log(P(word|right_contex)) / P(word)
     """
 
     def __init__(self,
                  model_dir: str,
-                 freq_vocab_path: str='./lm_models/freq_rusvector_elmo_vocab.json',
-                 penalty_for_unk_token: float=10e-6):
-        """
-        model_dir - path where is contained pretrainde ELMo
-        freq_vocab_path - path where is contained frequency dictionary of elmo vocabulary
-        penalty_for_unk_token - multiplier for token <UNK> when we estimate likelihood of sentence
-        """
+                 penalty_for_unk_token: float=10e-6,
+                 method_of_uniting_distr=0,
+                 freq_vocab_path: str='./lm_models/freq_rusvector_elmo_vocab.json'):
         self.elmo_lm = elmo_bilm.ELMoEmbedder(model_dir=model_dir)
         self.words = self.elmo_lm.get_vocab()
-        with open(freq_vocab_path, 'r') as f:
-            freq_of_words = self._adjust_freq_of_words(json.load(f))
-            self.freq_of_words = np.array(freq_of_words)
         self.token2idx = dict(zip(self.elmo_lm.get_vocab(), range(len(self.elmo_lm.get_vocab()))))
         self.IDX_UNK_TOKEN = self.token2idx.get("<UNK>")
         self.PENALTY_FOR_UNK_TOKEN = penalty_for_unk_token
         self.INIT_STATE_OF_ELMO = self.elmo_lm.init_states
+        if method_of_uniting_distr == 0:
+            self._unite_distr = self._unite_distr_with_freq_of_words
+            with open(freq_vocab_path, 'r') as f:
+                freq_of_words = self._adjust_freq_of_words(json.load(f))
+                self.freq_of_words = np.array(freq_of_words)
+        elif method_of_uniting_distr == 1:
+            self._unite_distr = self._unite_distr_log_sum
 
     def _adjust_freq_of_words(self, l: List[float]):
         """
@@ -48,7 +56,7 @@ class ELMOLM(object):
         denominator = np.expand_dims(np.sum(numerator, axis=axis), 2)
         return numerator / denominator
 
-    def _unite_distr(self, elmo_distr):
+    def _unite_distr_with_freq_of_words(self, elmo_distr):
         """
         utility method, that unites distribution from forward pass lm and from backward pass lm
         based on formula: (P(word|left_contex) * P(word|right_contex)) / P(word)
@@ -56,7 +64,16 @@ class ELMOLM(object):
         """
         elmo_distr = np.log(elmo_distr)
         elmo_distr = np.sum(elmo_distr, axis=1)
-        elmo_distr = elmo_distr - self.scores_of_elmo_vocab_by_kenlm
+        elmo_distr = elmo_distr - self.freq_of_words
+        return self._softmax(elmo_distr, axis=1)
+
+    def _unite_distr_log_sum(self, elmo_distr):
+        """
+        utility method, that unites distribution from forward pass lm and from backward pass lm
+        based on formula: (P(word|left_contex) * P(word|right_contex))
+        """
+        elmo_distr = np.log(elmo_distr)
+        elmo_distr = np.sum(elmo_distr, axis=1)
         return self._softmax(elmo_distr, axis=1)
 
     @staticmethod
@@ -66,8 +83,6 @@ class ELMOLM(object):
         """
         for i in range(0, len(items_list), chunk_size):
             yield items_list[i:i + chunk_size]
-
-####################################################################
 
     def tokenize_sentence_batch(self, sentences_batch, wrap_s=True):
         """
@@ -127,7 +142,7 @@ class ELMOLM(object):
         idx_sentence = [self.get_word_idx_or_unk(token) for token in tokenized_sentence]
         probas = []
         for num_token_in_sent, idx_word_in_voc in enumerate(idx_sentence):
-            multiplier = self.PENALTY_UNK if idx_word_in_voc == self.UNK_INDEX else 1
+            multiplier = self.PENALTY_FOR_UNK_TOKEN if idx_word_in_voc == self.IDX_UNK_TOKEN else 1
             probas.append(multiplier * elmo_data[num_token_in_sent, idx_word_in_voc])
         return probas
 
@@ -172,7 +187,7 @@ class ELMOLM(object):
     def get_word_idx_or_unk(self, word):
         return self.token2idx.get(word, self.IDX_UNK_TOKEN)
 
-    def estimate_likelihood_batch(self, sentence_batch, preserve_states=True, batch_size=10):
+    def estimate_likelihood_batch(self, sentences_batch, preserve_states=True, batch_size=10):
         batch_gen = self.chunk_generator(sentences_batch, batch_size)
         output_batch = []
         for mini_batch in batch_gen:
@@ -181,86 +196,40 @@ class ELMOLM(object):
             output_batch.extend(likelihoods_mini)
         return output_batch
 
-
-    def wrap_in_spec_symbols(self, batch: List[List[str]]):
-        return [['<S>'] + sent + ['</S>'] for sent in batch]
-
-    def _estimate_prob_minibatch(self, elmo_distr_united, minibatch: List[List[str]]):
-        idx_minibatch = [[self.token2idx.get(token, self.UNK_INDEX) for token in sent] for sent in minibatch]
-        p_minibatch = []
-        for num_sent, idx_sent in enumerate(idx_minibatch):
-            p_sent = []
-            for num_token, idx_token in enumerate(idx_sent):
-                multiplier = self.PENALTY_UNK if idx_token == self.UNK_INDEX else 1
-                p_sent.append(multiplier * elmo_distr_united[num_sent][num_token, idx_token])
-            p_minibatch.append(np.sum(np.log(p_sent)))
-        return p_minibatch
-
-    def _estimate_likelihood_minibatch(self, minibatch: List[List[str]], is_wrap_spec_sym: bool = True):
-        if is_wrap_spec_sym:
-            minibatch = self.wrap_in_spec_symbols(minibatch)
-        elmo_distr = self.elmo_lm(minibatch)
-        elmo_distr_united = [self._unite_distr(distr_sent) for distr_sent in elmo_distr]
-        likelihood_minibatch = self._estimate_prob_minibatch(elmo_distr_united, minibatch)
-        return likelihood_minibatch
-
-
-class ELMO_LM_one_track(ELMOLM):
-
-    def __init__(self,
-                 model_dir: str,
-                 scores_vocab_path: str,
-                 preserve_states: bool):
-        super().__init__(model_dir, scores_vocab_path, preserve_states)
-
-    def _save_distr_from_sentence(self, minibatch: List[List[str]], batch_size=10, is_wrap_spec_sym: bool = True):
+    def _estimate_likelihood_minibatch(self, sentences_batch, preserve_states=True):
         """
-
-        :param sentences_batch: - list of tokenized text, for example: [[it, is, cool], [i, am, know]]
-        :param batch_size:
-        :param is_wrap_spec_sym:
-        :return:
+        Estimates likelihood of the batch of sentence without check of batch size (may raise memory error)
         """
-        if is_wrap_spec_sym:
-            minibatch = self.wrap_in_spec_symbols(minibatch)
-        elmo_distr = self.elmo_lm(minibatch)
-        united_dist = [self._unite_distr(distr_sent) for distr_sent in elmo_distr]
-        self.saved_elmo_distr = united_dist
+        tok_sents_wrapped = self.tokenize_sentence_batch(sentences_batch)
+        init_states_bak = self.elmo_lm.init_states
+        elmo_datas = self.elmo_lm(tok_sents_wrapped)
+        elmo_datas = [self._unite_distr(elmo_distr) for elmo_distr in elmo_datas]
+        probas = self.trace_sentence_probas_in_elmo_datas_batch(elmo_datas, tok_sents_wrapped)
 
-    def _estimate_prob_minibatch_on_saved_distr(self, minibatch: List[List[List[str]]]):
+        likelihoods = []
+        for each_sent_probas in probas:
+            logs = np.log(each_sent_probas)
+            likelihood = np.mean(logs)
+            likelihoods.append(likelihood)
+        if preserve_states:
+            self.elmo_lm.init_states = init_states_bak
+        return likelihoods
+
+    def estimate_likelihood(self, sentence, preserve_states=True):
         """
-
-        :param minibatch: list of hyp, for example: [[[it, is, you], [at, is, you], [is, it, you]], [[stop, this], [Stop, this], [stop, him]]]
-        :return: list[list[float]], for example: [[123, 34, 44], [1233, 4343, 5555555]]
+        Estimates a likelihood of a sentence
         """
-        minibatch = [self.wrap_in_spec_symbols(hyps) for hyps in minibatch]
-        idx_minibatch = [[[ self.token2idx.get(token, self.UNK_INDEX)
-                            for token in hyp]
-                                for hyp in hyps]
-                                    for hyps in minibatch]
-        p_minibatch = []
-        for num_sent, idx_hyps in enumerate(idx_minibatch):
-            p_hyps = []
-            for num_hyp, idx_hyp in enumerate(idx_hyps):
-                p_hyp = []
-                for num_token, idx_token in enumerate(idx_hyp):
-                    multiplier = self.PENALTY_UNK if idx_token == self.UNK_INDEX else 1
-                    p_hyp.append(multiplier * self.saved_elmo_distr[num_sent][num_token, idx_token])
-                p_hyps.append(np.sum(np.log(p_hyp)))
-            p_minibatch.append(p_hyps)
-        return p_minibatch
+        tok_wrapped = self.tokenize_sentence(sentence)
+        init_states_bak = self.elmo_lm.init_states
+        elmo_datas = self.elmo_lm([tok_wrapped])
+        elmo_datas = [self._unite_distr(elmo_distr) for elmo_distr in elmo_datas][0]
+        probas = self.trace_sentence_probas_in_elmo_data(elmo_datas, tok_wrapped)
 
-    def estimate_likelihood_batch(self, input_batch: List[List[str]], hyp_batch: List[List[List[str]]], batch_size=10):
-        ziped = list(zip(input_batch, hyp_batch))
-        batch_gen = self.chunk_generator(ziped, batch_size)
-        output_batch = []
-        for input_and_hyp_batch in tqdm(batch_gen):
-            input_batch = [i[0] for i in input_and_hyp_batch]
-            hyp_batch = [i[1] for i in input_and_hyp_batch]
-            self._save_distr_from_sentence(input_batch)
-            likelihoods_mini = self._estimate_prob_minibatch_on_saved_distr(hyp_batch)
-            output_batch.extend(likelihoods_mini)
-        return output_batch
+        logs = np.log(probas)
+        likelihood = np.mean(logs)
+        if preserve_states:
+            self.elmo_lm.init_states = init_states_bak
+        return likelihood
 
 
 
