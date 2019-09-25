@@ -35,11 +35,6 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
                                                     min_advantage_treshold=min_advantage_treshold)
         # the_best:
         output_sentence = hypotheses[0].text
-        # # TODO merge analysis_dict with merged_tokens_hypotheses_dict
-
-        # implement the best fixes
-        # output_sentence = self.fixes_maker(analysis_dict, max_num_fixes=self.max_num_fixes,
-        #                                    fix_treshold=self.fix_treshold)
 
         # restore capitalization:
         output_sentence_tokens = self._lettercaser([analysis_dict['input_sentence'].split()],
@@ -48,6 +43,13 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
         return output_sentence
 
     def prepare_analysis_dict_for_sentence(self, sentence):
+        """
+        The method which produces analysis dictionary of the sentence, it generates
+        substitution candidates of the segments of the input sentence.
+
+        :param sentence: str
+        :return: dict SentenceAnalysisDictionary
+        """
         # preprocess
         preprocessed_sentence = self.preprocess_sentence(sentence)
 
@@ -59,10 +61,12 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
             {'input_sentence': preprocessed_sentence,
              'tokenized_input_sentence': self.lm.tokenize_sentence(preprocessed_sentence)},
             elmo_data)
+        # TODO phonetic hypothese generation?
 
         # multi-token - token hypotheses generation
         merged_tokens_hypotheses_dict = self.generate_Nto1_hypotheses(
             analysis_dict['tokenized_input_sentence'], elmo_data)
+
 
         analysis_dict['word_substitutions_candidates'] += merged_tokens_hypotheses_dict
         return analysis_dict
@@ -91,11 +95,9 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
             # simple merge hypothesis:
             merge_hypothesis_str = wrapped_tokenized_sentence[tok_idx - 1] + \
                                    wrapped_tokenized_sentence[tok_idx]
-
+            source_segment_str = wrapped_tokenized_sentence[tok_idx-1] +" "+ wrapped_tokenized_sentence[tok_idx]
             ################################################################################
             # variate merged variant by levenshtein
-            # TODO if no we can variate it with Levenshtein?
-            # TODO apply rule based statistical substitutions? чтонить -> что-нибудь etc
             # print("Variate merged hypothesis: %s" % merge_hypothesis_str)
             candidates_lists = self.sccg([[merge_hypothesis_str]])
 
@@ -118,8 +120,6 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
                     # Calculate base score of the span.
                     # Base score is a cumulative likelihood score of the input tokens which are
                     # related to merged one.
-                    # TODO reduce code duplication!
-                    # TODO collect scores for tokens under merge span
                     base_scores = []
                     for eac_tok_idx in range(token_start_index, token_fin_index + 1):
                         base_left_logit, base_right_logit = self.lm.retrieve_logits_of_particular_token(
@@ -128,6 +128,13 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
                         base_scores.append([base_left_logit, base_right_logit])
                     base_scores = np.array(base_scores)
                     summated_base_scores = base_scores.sum(axis=0)
+                    # merge and variation may produce erroneous score: when merge and insertion
+                    # occurs in the same position. So we calc true_levenshtein_distance
+                    # from source segment.
+                    # TODO And may be we need to rescore?
+                    # TODO recalculate scores to avoid overscoring fixes like:
+                    #   что нибудь -> (что-нибудь -6.0) because of merge + error score
+                    true_lev_distance = self.sccg.searcher.transducer.distance(each_merge_candidate_str, source_segment_str)
                     error_score = ERROR_SCORE_FOR_MERGE + each_merge_candidate_err_score
                     #################################
 
@@ -139,15 +146,16 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
                         'tok_idx_start': token_start_index,
                         'tok_idx_fin': token_fin_index,
                         # string of source
-                        'source_segment_str': wrapped_tokenized_sentence[tok_idx-1] +" "+ wrapped_tokenized_sentence[tok_idx],
+                        'source_segment_str': source_segment_str,
 
                         'top_k_candidates': [
                             {
                                 'token_str': each_merge_candidate_str,
                                 'token_merges': 1,
                                 # 'error_score': ERROR_SCORE_FOR_MERGE,
-                                # TODO enable error score!
                                 'levenshtein_variation_err_score': each_merge_candidate_err_score,
+                                # distance to source segment:
+                                'levenshtein_distance': true_lev_distance,
                                 # cumulative error (merges and levenshtein)
                                 'error_score': error_score,
                                 'lm_scores_list': logit_probas.tolist(),

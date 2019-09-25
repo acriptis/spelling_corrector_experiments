@@ -1,5 +1,5 @@
 DATA_PATH = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
-from dp_components.levenshtein_searcher import LevenshteinSearcherComponent
+from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
 
 
 class SpellingCorrectionCandidatesGenerator():

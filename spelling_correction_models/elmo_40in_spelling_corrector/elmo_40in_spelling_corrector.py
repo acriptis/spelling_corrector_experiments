@@ -11,7 +11,7 @@ sys.path.append(ROOT_DIR)
 # #####################################################
 from lettercaser import LettercaserForSpellchecker
 from language_models.elmolm_from_config import ELMOLM
-from dp_components.levenshtein_searcher import LevenshteinSearcherComponent
+from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
 import numpy as np
 import re
 from copy import deepcopy
@@ -23,7 +23,14 @@ DATA_PATH = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
 ZERO_LOWER_BOUND = -1.0e-14
 # when we split token into 2 tokens we hackily over-estimate likelihood from ELMO, so we multiply
 # it with some parameter (logits are negative):
+# TOKEN_SPLIT_LOGIT_MULTIPLICATOR = 1.5  #(SOTA 190920)
 TOKEN_SPLIT_LOGIT_MULTIPLICATOR = 1.5
+
+# error score incremented for tokens splitting
+TOKEN_SPLIT_ERROR_SCORE = -2.0
+
+# weighted distance limit for levenshtein search:
+LEVENSHTEIN_MAX_DIST = 1.0
 
 def clean_dialog16_sentences_from_punctuation(sentences):
     """
@@ -151,13 +158,15 @@ class ELMO40inSpellingCorrector():
             # to avoid confusion: words_dict is a list of strings (which are words of
             # language's dictionary)
             self.words_dict = dict_file.read().splitlines()
-        lsc = LevenshteinSearcherComponent(words=self.words_dict)
+
+        lsc = LevenshteinSearcherComponent(words=self.words_dict,
+                                           max_distance=LEVENSHTEIN_MAX_DIST)
         return lsc
 
     def preprocess_sentence(self, sentence):
         # lowercase
         lowercased_sentence = sentence.lower()
-        # TODO depunctuate
+        # TODO depunctuate ?
         return lowercased_sentence
 
     def process_sentence(self, sentence):
@@ -258,7 +267,7 @@ class ELMO40inSpellingCorrector():
         # elmo data array contains a ndarray of size: [1, len(sentence tokens), 1000000]
         return self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(result_data_dict, elmo_data)
 
-    def elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(self, sentence_analysis_dict, elmo_data):
+    def elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(self, sentence_analysis_dict, elmo_data, filter_by_lm_lower_bound=None):
         """
         Given a sentence this method analyzes it and returns an analysis dictionary
         with hypotheses of the best substitutions (as scored lists for each token).
@@ -333,6 +342,8 @@ class ELMO40inSpellingCorrector():
             ]
         }
         """
+        if not filter_by_lm_lower_bound:
+            filter_by_lm_lower_bound = ZERO_LOWER_BOUND
         tok_wrapped = sentence_analysis_dict['tokenized_input_sentence']
 
         # elmo data array contains a ndarray of size: [1, len(sentence tokens), 1000000]
@@ -415,9 +426,9 @@ class ELMO40inSpellingCorrector():
                     assert left_logit < 0
                     assert right_logit < 0
                     # multiply with 1.5 all logits becasue we use hacky over-estimation from ELMO
-
                     left_logit *= TOKEN_SPLIT_LOGIT_MULTIPLICATOR
                     right_logit *= TOKEN_SPLIT_LOGIT_MULTIPLICATOR
+
                     # with out error score
                     ###########################################################################
                 else:
@@ -439,7 +450,7 @@ class ELMO40inSpellingCorrector():
                     word_substitutions_candidates[tok_idx]['top_k_candidates'].append(candidate_dict)
                 # elif advantage_score >= ZERO_LOWER_BOUND:
                 # temporarly filter by lm_advantage only:
-                elif lm_advantage >= ZERO_LOWER_BOUND:
+                elif lm_advantage >= filter_by_lm_lower_bound:
                     # hypothesis satisfies the policy
                     candidate_dict['zero_hypothesis'] = False
                     candidate_dict['error_score'] = error_score
