@@ -23,58 +23,57 @@ class ELMOLM(object):
 
     def __init__(self,
                  model_dir: str,
-                 penalty_for_unk_token: float=10e-6,
-                 method_of_uniting_distr=0,
-                 freq_vocab_path: str='./lm_models/freq_rusvector_elmo_vocab.json'):
+                 penalty_for_unk_token: float=10e-6):
+                 #freq_vocab_path: str='./language_models/lm_models/freq_rusvector_elmo_vocab.json'):
         self.elmo_lm = elmo_bilm.ELMoEmbedder(model_dir=model_dir)
         self.words = self.elmo_lm.get_vocab()
         self.token2idx = dict(zip(self.elmo_lm.get_vocab(), range(len(self.elmo_lm.get_vocab()))))
         self.IDX_UNK_TOKEN = self.token2idx.get("<UNK>")
         self.PENALTY_FOR_UNK_TOKEN = penalty_for_unk_token
         self.INIT_STATE_OF_ELMO = self.elmo_lm.init_states
-        if method_of_uniting_distr == 0:
-            self._unite_distr = self._unite_distr_with_freq_of_words
-            with open(freq_vocab_path, 'r') as f:
-                freq_of_words = self._adjust_freq_of_words(json.load(f))
-                self.freq_of_words = np.array(freq_of_words)
-        elif method_of_uniting_distr == 1:
-            self._unite_distr = self._unite_distr_log_sum
+        #if method_of_uniting_distr == 0:
+        #    self._unite_distr = self._unite_distr_with_freq_of_words
+        #    with open(freq_vocab_path, 'r') as f:
+        #        freq_of_words = self._adjust_freq_of_words(json.load(f))
+        #        self.freq_of_words = np.array(freq_of_words)
+        #elif method_of_uniting_distr == 1:
+        #    self._unite_distr = self._unite_distr_log_sum
 
-    def _adjust_freq_of_words(self, l: List[float]):
-        """
-        Utility method, that adjusts freq of words received from kenlm.
-        words with freq -8.125675(unknown token) get new freq = 1, because it doesn't work well with unknown tokens
-        """
-        supp = max(l)
-        return [i if i != l[0] else supp for i in l]
-
-    def _softmax(self, a, axis):
-        """
-        softmax implementation
-        """
-        numerator = np.exp(a - np.max(a))
-        denominator = np.expand_dims(np.sum(numerator, axis=axis), 2)
-        return numerator / denominator
-
-    def _unite_distr_with_freq_of_words(self, elmo_distr):
-        """
-        utility method, that unites distribution from forward pass lm and from backward pass lm
-        based on formula: (P(word|left_contex) * P(word|right_contex)) / P(word)
-        P(word) is taken from self.freq_of_words attribute
-        """
-        elmo_distr = np.log(elmo_distr)
-        elmo_distr = np.sum(elmo_distr, axis=1)
-        elmo_distr = elmo_distr - self.freq_of_words
-        return self._softmax(elmo_distr, axis=1)
-
-    def _unite_distr_log_sum(self, elmo_distr):
-        """
-        utility method, that unites distribution from forward pass lm and from backward pass lm
-        based on formula: (P(word|left_contex) * P(word|right_contex))
-        """
-        elmo_distr = np.log(elmo_distr)
-        elmo_distr = np.sum(elmo_distr, axis=1)
-        return self._softmax(elmo_distr, axis=1)
+    #def _adjust_freq_of_words(self, l: List[float]):
+    #    """
+    #    Utility method, that adjusts freq of words received from kenlm.
+    #    words with freq -8.125675(unknown token) get new freq = 1, because it doesn't work well with unknown tokens
+    #    """
+    #    supp = max(l)
+    #    return [i if i != l[0] else supp for i in l]
+#
+    #def _softmax(self, a, axis):
+    #    """
+    #    softmax implementation
+    #    """
+    #    numerator = np.exp(a - np.max(a))
+    #    denominator = np.expand_dims(np.sum(numerator, axis=axis), 2)
+    #    return numerator / denominator
+#
+    #def _unite_distr_with_freq_of_words(self, elmo_distr):
+    #    """
+    #    utility method, that unites distribution from forward pass lm and from backward pass lm
+    #    based on formula: (P(word|left_contex) * P(word|right_contex)) / P(word)
+    #    P(word) is taken from self.freq_of_words attribute
+    #    """
+    #    elmo_distr = np.log10(elmo_distr)
+    #    elmo_distr = np.sum(elmo_distr, axis=1)
+    #    elmo_distr = elmo_distr - self.freq_of_words
+    #    return self._softmax(elmo_distr, axis=1)
+#
+    #def _unite_distr_log_sum(self, elmo_distr):
+    #    """
+    #    utility method, that unites distribution from forward pass lm and from backward pass lm
+    #    based on formula: (P(word|left_contex) * P(word|right_contex))
+    #    """
+    #    elmo_distr = np.log10(elmo_distr)
+    #    elmo_distr = np.sum(elmo_distr, axis=1)
+    #    return self._softmax(elmo_distr, axis=1)
 
     @staticmethod
     def chunk_generator(items_list, chunk_size):
@@ -118,18 +117,6 @@ class ELMOLM(object):
         data = self.elmo_lm([tok_wrapped])[0]
         return data
 
-    def estimate_likelihood_batch(self, sentences_batch, batch_size=10):
-        """
-        Method estimates a likelihood of the batch of sentences with slicing the batch into minibatches
-        to avoid memory error
-        """
-        batch_gen = self.chunk_generator(sentences_batch, batch_size)
-        output_batch = []
-        for mini_batch in tqdm(batch_gen):
-            likelihoods_mini = self._estimate_likelihood_minibatch(mini_batch)
-            output_batch.extend(likelihoods_mini)
-        return output_batch
-
     def trace_sentence_probas_in_elmo_data(self, elmo_data, tokenized_sentence):
         """
         Given elmo data (results of estimation the sentence by ELMO LM) and tokenized sentence
@@ -137,14 +124,19 @@ class ELMOLM(object):
         :param elmo_data: ndarray from ELMOLM
         :param tokenized_sentence: list of tokens of sentence to analyze (which are wrapped with
             <s> </s> tokens as first and last tokens)
-        :return: array with dims [N], where N is a length of sentence
+        :return: array with dims [N,2], where N is a length of sentence
         """
-        idx_sentence = [self.get_word_idx_or_unk(token) for token in tokenized_sentence]
-        probas = []
+        left_probas = []
+        right_probas = []
+
+        idx_sentence = [self.get_word_idx_or_unk(token)[0] for token in tokenized_sentence]
         for num_token_in_sent, idx_word_in_voc in enumerate(idx_sentence):
             multiplier = self.PENALTY_FOR_UNK_TOKEN if idx_word_in_voc == self.IDX_UNK_TOKEN else 1
-            probas.append(multiplier * elmo_data[num_token_in_sent, idx_word_in_voc])
-        return probas
+            left_p, right_p = elmo_data[num_token_in_sent, :, idx_word_in_voc]
+            left_probas.append(multiplier * left_p)
+            right_probas.append(multiplier * right_p)
+
+        return np.array([left_probas, right_probas])
 
     def trace_sentence_probas_in_elmo_datas_batch(self, elmo_datas, tokenized_sentences):
         """
@@ -177,20 +169,23 @@ class ELMOLM(object):
         then it will return normalized probability for unknown tokens
         :return: tuple of left_logit and right_logit score
         """
-        idx = self.get_word_idx_or_unk(token_str)
+        idx, _ = self.get_word_idx_or_unk(token_str)
+        left_p, right_p = elmo_data[sentence_position_index, :, idx]
         multiplicator = self.PENALTY_FOR_UNK_TOKEN if idx == self.IDX_UNK_TOKEN else 1
-        return multiplicator * elmo_data[sentence_position_index, idx]
+        left_logit = np.log10(left_p * multiplicator)
+        right_logit = np.log10(right_p * multiplicator)
+        return left_logit, right_logit
 
     def get_word_idx(self, word):
         return self.token2idx.get(word)
 
     def get_word_idx_or_unk(self, word):
-        return self.token2idx.get(word, self.IDX_UNK_TOKEN)
+        res = self.token2idx.get(word, self.IDX_UNK_TOKEN)
+        return res, res == self.IDX_UNK_TOKEN
 
     def estimate_likelihood_batch(self, sentences_batch, preserve_states=True, batch_size=10):
-        batch_gen = self.chunk_generator(sentences_batch, batch_size)
         output_batch = []
-        for mini_batch in batch_gen:
+        for mini_batch in self.chunk_generator(sentences_batch, batch_size):
             likelihoods_mini = self._estimate_likelihood_minibatch(mini_batch,
                                                                    preserve_states=preserve_states)
             output_batch.extend(likelihoods_mini)
@@ -203,13 +198,13 @@ class ELMOLM(object):
         tok_sents_wrapped = self.tokenize_sentence_batch(sentences_batch)
         init_states_bak = self.elmo_lm.init_states
         elmo_datas = self.elmo_lm(tok_sents_wrapped)
-        elmo_datas = [self._unite_distr(elmo_distr) for elmo_distr in elmo_datas]
         probas = self.trace_sentence_probas_in_elmo_datas_batch(elmo_datas, tok_sents_wrapped)
 
         likelihoods = []
         for each_sent_probas in probas:
-            logs = np.log(each_sent_probas)
-            likelihood = np.mean(logs)
+            logit_probas = np.log10(each_sent_probas)
+            united_probas = np.sum(logit_probas, axis=1)
+            likelihood = np.mean(united_probas)
             likelihoods.append(likelihood)
         if preserve_states:
             self.elmo_lm.init_states = init_states_bak
@@ -222,11 +217,11 @@ class ELMOLM(object):
         tok_wrapped = self.tokenize_sentence(sentence)
         init_states_bak = self.elmo_lm.init_states
         elmo_datas = self.elmo_lm([tok_wrapped])
-        elmo_datas = [self._unite_distr(elmo_distr) for elmo_distr in elmo_datas][0]
         probas = self.trace_sentence_probas_in_elmo_data(elmo_datas, tok_wrapped)
 
-        logs = np.log(probas)
-        likelihood = np.mean(logs)
+        logit_probas = np.log10(probas)
+        united_probas = np.sum(logit_probas, axis=1)
+        likelihood = np.mean(united_probas)
         if preserve_states:
             self.elmo_lm.init_states = init_states_bak
         return likelihood
