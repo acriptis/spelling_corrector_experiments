@@ -4,7 +4,6 @@ from typing import Iterable, List, Tuple
 
 from deeppavlov.core.common.registry import register
 from deeppavlov.core.models.component import Component
-from deeppavlov.core.common.log import get_logger
 
 # from deeppavlov.models.spelling_correction.levenshtein.levenshtein_searcher import LevenshteinSearcher
 from .levenshtein_searcher import LevenshteinSearcher
