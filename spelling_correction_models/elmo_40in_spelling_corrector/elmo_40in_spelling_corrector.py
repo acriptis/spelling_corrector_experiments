@@ -10,7 +10,7 @@ print(ROOT_DIR)
 sys.path.append(ROOT_DIR)
 # #####################################################
 from lettercaser import LettercaserForSpellchecker
-from language_models.elmolm_from_config import ELMOLM
+from language_models.ELMO_inference import ELMOLM
 from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
 import numpy as np
 import re
@@ -100,48 +100,7 @@ class ELMO40inSpellingCorrector():
         Initilize default ELMO LM if no specification was provided in configuration
         :return: ELMOLM instance
         """
-        # TODO: azat substitute please with ELMO_inference component
-        elmo_config = {
-            "chainer": {
-                "in": [
-                    "sentences"
-                ],
-                "pipe": [
-                    {
-                        "in": ["sentences"],
-                        "class_name": "lazy_tokenizer",
-                        "out": ["tokens"]
-                    },
-                    {
-                        "class_name": "elmo_bilm",
-                        "mini_batch_size": 10,
-                        "in": [
-                            "tokens"
-                        ],
-                        "model_dir": "bidirectional_lms/elmo_ru_news",
-                        "out": [
-                            "pred_tokens"
-                        ]
-                    }
-                ],
-                "out": [
-                    "pred_tokens"
-                ]
-            },
-            "metadata": {
-                "requirements": [
-                    "../dp_requirements/tf.txt",
-                    "../dp_requirements/elmo.txt"
-                ],
-                "download": [
-                    {
-                        "url": "http://files.deeppavlov.ai/deeppavlov_data/lm_elmo_ru_news.tar.gz",
-                        "subdir": "bidirectional_lms/"
-                    }
-                ]
-            }
-        }
-        instance = ELMOLM(elmo_config)
+        instance = ELMOLM(model_dir="~/.deeppavlov/downloads/embeddings/elmo_ru_news/")
         return instance
 
     def _init_sccg(self):
