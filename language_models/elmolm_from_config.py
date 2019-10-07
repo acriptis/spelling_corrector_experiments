@@ -11,6 +11,7 @@ class ELMOLM():
 
     def __init__(self, config_dict):
         #         tf.compat.v1.random.set_random_seed(1234)
+        # self.elmo_lm = build_model(config_dict, download=True)
         self.elmo_lm = build_model(config_dict, download=False)
         self.words = self.elmo_lm.pipe[-1][-1].get_vocab()
         self.word_index = {word: i for i, word in enumerate(self.words)}
@@ -70,7 +71,7 @@ class ELMOLM():
 
             left_probas.append(left_p * magic_multiplicator)
             right_probas.append(right_p * magic_multiplicator)
-        print()
+        # print()
         return np.array([left_probas, right_probas])
 
     def trace_sentence_probas_in_elmo_datas_batch(self, elmo_datas, tokenized_sentences):
