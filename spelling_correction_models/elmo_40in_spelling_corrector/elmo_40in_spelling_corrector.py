@@ -15,7 +15,7 @@ from dp_components.levenshtein_searcher_component import LevenshteinSearcherComp
 import numpy as np
 import re
 from copy import deepcopy
-DATA_PATH = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
+
 
 # due to computational error 0.0 advantage may occur as small negative number,
 # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
@@ -31,6 +31,10 @@ TOKEN_SPLIT_ERROR_SCORE = -2.0
 
 # weighted distance limit for levenshtein search:
 LEVENSHTEIN_MAX_DIST = 1.0
+
+# out of vocabulary penalty
+OOV_PENALTY = -1.0
+
 
 def clean_dialog16_sentences_from_punctuation(sentences):
     """
@@ -74,7 +78,7 @@ class ELMO40inSpellingCorrector():
     """
 
     def __init__(self, language_model=None, spelling_correction_candidates_generator=None,
-                 fix_treshold=10.0, max_num_fixes=5):
+                 fix_treshold=10.0, max_num_fixes=5, data_path=None):
         print("Init LetterCaser.")
         self._lettercaser = LettercaserForSpellchecker()
         print("Init language_model.")
@@ -83,6 +87,19 @@ class ELMO40inSpellingCorrector():
         else:
             self.lm = self._init_elmo()
         print("Init spelling_correction_candidates_generator.")
+        # DATA PATH
+        if data_path:
+            self._data_path = data_path
+        else:
+            # import sys
+            import os
+
+            SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+            ROOT_DIR = os.path.dirname(os.path.dirname(SELF_DIR))
+            DATA_PATH = ROOT_DIR + '/data'
+            # = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
+            self._data_path = DATA_PATH
+
         if spelling_correction_candidates_generator:
             self.sccg = spelling_correction_candidates_generator
         else:
@@ -101,6 +118,23 @@ class ELMO40inSpellingCorrector():
         :return: ELMOLM instance
         """
         # TODO: azat substitute please with ELMO_inference component
+
+        news_elmo_code = "elmo_ru_news"
+        news_elmo_targz = "lm_elmo_ru_news.tar.gz"
+
+        news_simple_elmo_code = "elmo-lm-ready4fine-tuning-ru-news-simple"
+        news_elmo_simple_targz = "elmo-lm-ready4fine-tuning-ru-news-simple.tar.gz"
+
+        wiki_elmo_code = "elmo-lm-ready4fine-tuning-ru-wiki"
+        wiki_elmo_targz = "elmo-lm-ready4fine-tuning-ru-wiki.tar.gz"
+
+        selected_model_dir = news_elmo_code
+        selected_model_targz = news_elmo_targz
+        # selected_model_dir = wiki_elmo_code
+        # selected_model_targz = wiki_elmo_targz
+        # selected_model_dir = news_simple_elmo_code
+        # selected_model_targz = news_elmo_simple_targz
+
         elmo_config = {
             "chainer": {
                 "in": [
@@ -114,11 +148,11 @@ class ELMO40inSpellingCorrector():
                     },
                     {
                         "class_name": "elmo_bilm",
-                        "mini_batch_size": 10,
+                        "mini_batch_size": 120,
                         "in": [
                             "tokens"
                         ],
-                        "model_dir": "bidirectional_lms/elmo_ru_news",
+                        "model_dir": "bidirectional_lms/%s" % selected_model_dir ,
                         "out": [
                             "pred_tokens"
                         ]
@@ -135,7 +169,7 @@ class ELMO40inSpellingCorrector():
                 ],
                 "download": [
                     {
-                        "url": "http://files.deeppavlov.ai/deeppavlov_data/lm_elmo_ru_news.tar.gz",
+                        "url": "http://files.deeppavlov.ai/deeppavlov_data/%s" % selected_model_targz,
                         "subdir": "bidirectional_lms/"
                     }
                 ]
@@ -150,7 +184,7 @@ class ELMO40inSpellingCorrector():
         :return: instance of spelling correction candidates generator
         """
         # TODO refactor with dynamic dictionary
-        path_to_dictionary = DATA_PATH + "compreno_wordforms.txt"
+        path_to_dictionary = self._data_path + "/compreno_wordforms.txt"
 
         # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
 
@@ -160,7 +194,9 @@ class ELMO40inSpellingCorrector():
             self.words_dict = dict_file.read().splitlines()
 
         lsc = LevenshteinSearcherComponent(words=self.words_dict,
-                                           max_distance=LEVENSHTEIN_MAX_DIST)
+                                           max_distance=LEVENSHTEIN_MAX_DIST,
+                                           oov_penalty=OOV_PENALTY
+                                           )
         return lsc
 
     def preprocess_sentence(self, sentence):
