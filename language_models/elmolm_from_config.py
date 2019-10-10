@@ -2,9 +2,10 @@ from deeppavlov.models.bidirectional_lms import elmo_bilm
 from deeppavlov import build_model, configs
 import numpy as np
 import datetime as dt
+from language_models.base_elmo_lm import BaseELMOLM
 
 
-class ELMOLM():
+class ELMOLM(BaseELMOLM):
     # TODO merge with ELMO_inference!
     # discount number to reduce probability of UNKNOWN words
     UNK_DISCOUNTER = 1e-6
@@ -16,28 +17,6 @@ class ELMOLM():
         self.words = self.elmo_lm.pipe[-1][-1].get_vocab()
         self.word_index = {word: i for i, word in enumerate(self.words)}
 
-    def tokenize_sentence_batch(self, sentences_batch, wrap_s=True):
-        """
-        input sentences (list of strings)
-        ouputs list of lists of tokens
-        """
-        assert isinstance(sentences_batch, list)
-
-        # wrap with S tokens
-        if wrap_s:
-            tok_sents = [['<S>'] + sent.split() + ['</S>'] for sent in sentences_batch]
-        else:
-            tok_sents = [sent.split() for sent in sentences_batch]
-        return tok_sents
-
-    def tokenize_sentence(self, sentence, wrap_s=True):
-        """
-        """
-        tok_sent = sentence.split()
-        # wrap with S tokens
-        if wrap_s:
-            tok_sent = ['<S>'] + tok_sent + ['</S>']
-        return tok_sent
 
     def trace_sentence_probas_in_elmo_data(self, elmo_data, tokenized_sentence):
         """
@@ -60,7 +39,6 @@ class ELMOLM():
             if idx:
                 #                 print("get_index for word %s is %d" % (each_tok.upper(), idx))
                 magic_multiplicator = 1.0
-                pass
             else:
                 idx = self.word_index.get("<UNK>")
                 magic_multiplicator = self.UNK_DISCOUNTER
@@ -140,7 +118,6 @@ class ELMOLM():
         idx = self.get_word_idx(token_str)
         if idx:
             magic_multiplicator = 1.0
-            pass
         else:
             idx = self.word_index.get("<UNK>")
             # reduce probability of UNK tokens
@@ -150,67 +127,6 @@ class ELMOLM():
         left_logit = np.log10(left_p * magic_multiplicator)
         right_logit = np.log10(right_p * magic_multiplicator)
         return left_logit, right_logit
-
-
-    def analyze_sentence(self, sentence):
-        """
-        Returns elmo's parsing of a sentence
-        """
-        # tokenize
-
-        tok_wrapped = self.tokenize_sentence(sentence)
-        # analyze the sentence:
-        data = self.elmo_lm([tok_wrapped])[0]
-        return data
-
-    def get_word_idx(self, word):
-        """
-        Get a word's index from word string
-        if no word found in dictionary returns None
-        """
-        word_idx = self.word_index.get(word)
-        return word_idx
-
-    def get_word_idx_or_unk(self, word):
-        """
-        Get a word's index from word string
-        if no word found in dictionary returns UNK index and boolean flag that it is unknown word
-
-        return tuple: (word_index, is_unk) - word_index is an index to be used for the word,
-            is_unk is boolean flag if word will be interpreted as unknown word
-        """
-        is_unk=False
-        idx = self.get_word_idx(word)
-        if not idx:
-            idx = self.word_index.get("<UNK>")
-            is_unk = True
-
-        return idx, is_unk
-
-    @staticmethod
-    def chunk_generator(items_list, chunk_size):
-        """
-        Method to slice batches into chunks of minibatches
-        """
-        for i in range(0, len(items_list), chunk_size):
-            yield items_list[i:i + chunk_size]
-
-    def estimate_likelihood_batch(self, sentences_batch, preserve_states=True, batch_size=10):
-        """
-        Method estimates a likelihood of the batch of sentences with slicing the batch into minibatches
-        to avoid memory error
-        """
-        if len(sentences_batch) > batch_size:
-            batch_gen = self.chunk_generator(sentences_batch, batch_size)
-            output_batch = []
-            for mini_batch in batch_gen:
-                likelihoods_mini = self._estimate_likelihood_minibatch(mini_batch,
-                                                                       preserve_states=preserve_states)
-                output_batch.extend(likelihoods_mini)
-        else:
-            output_batch = self._estimate_likelihood_minibatch(sentences_batch,
-                                                               preserve_states=preserve_states)
-        return output_batch
 
     def _estimate_likelihood_minibatch(self, sentences_batch, preserve_states=True):
         """
@@ -227,7 +143,7 @@ class ELMOLM():
         likelihoods = []
 
         for each_sent_probas in probas:
-            logit_probas = np.log2(each_sent_probas)
+            logit_probas = np.log10(each_sent_probas)
             #         products = np.prod(probas, axis=1)
             products = np.sum(logit_probas, axis=1)
             #             print(products)
@@ -246,7 +162,7 @@ class ELMOLM():
         elmo_data = self.elmo_lm([tok_wrapped])[0]
 
         probas = self.trace_sentence_probas_in_elmo_data(elmo_data, tok_wrapped)
-        logit_probas = np.log2(probas)
+        logit_probas = np.log10(probas)
         #         products = np.prod(probas, axis=1)
         products = np.sum(logit_probas, axis=1)
         print(products)
