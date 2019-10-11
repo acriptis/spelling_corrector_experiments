@@ -16,7 +16,7 @@ class ELMOLM(BaseELMOLM):
         self.elmo_lm = build_model(config_dict, download=False)
         self.words = self.elmo_lm.pipe[-1][-1].get_vocab()
         self.word_index = {word: i for i, word in enumerate(self.words)}
-
+        self.INIT_STATE_OF_ELMO = self.elmo_lm.pipe[-1][-1].init_states
 
     def trace_sentence_probas_in_elmo_data(self, elmo_data, tokenized_sentence):
         """
@@ -135,7 +135,7 @@ class ELMOLM(BaseELMOLM):
         tok_sents_wrapped = self.tokenize_sentence_batch(sentences_batch)
         #         print("Sentences are tokenized...")
         #         print(self.elmo_lm.pipe[-1][-1].init_states)
-        init_states_bak = self.elmo_lm.pipe[-1][-1].init_states
+
         elmo_datas = self.elmo_lm(tok_sents_wrapped)
         #         print("ELMO probas are calculated")
         probas = self.trace_sentence_probas_in_elmo_datas_batch(elmo_datas, tok_sents_wrapped)
@@ -150,7 +150,7 @@ class ELMOLM(BaseELMOLM):
             likelihood = np.mean(products)
             likelihoods.append(likelihood)
         if preserve_states:
-            self.elmo_lm.pipe[-1][-1].init_states = init_states_bak
+            self.elmo_lm.pipe[-1][-1].init_states = self.INIT_STATE_OF_ELMO
         return likelihoods
 
     def estimate_likelihood(self, sentence):
