@@ -5,6 +5,10 @@ from .helper_fns import estimate_the_best_s_hypotheses
 # increment of the logit for merging 2tokens->1token:
 ERROR_SCORE_FOR_MERGE = -2.0
 
+# Size of batch in elmo lm:
+ELMO_BATCH_SIZE = 10
+# TODO fix duplicated parameter. Need tor etrireve batch size from elmo lm model?
+
 
 class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
     """
@@ -195,4 +199,77 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
     @staticmethod
     def fixes_maker(analysis_data, max_num_fixes=5, fix_treshold=10.0, remove_s=True):
         raise Exception("Implement me!")
+
+    # #######################################################################################
+    # BATCHY OPTIMIZED METHODS
+    @staticmethod
+    def chunk_generator(items_list, chunk_size):
+        """
+        Method to slice batches into chunks of minibatches
+        """
+        for i in range(0, len(items_list), chunk_size):
+            yield items_list[i:i + chunk_size]
+
+    def process_sentences_batch(self, sentences, min_advantage_treshold=1.0):
+        """
+        Givewn a batch of sentences it returns a batch of corrections
+        :param sentences: list of input sentences
+        :return: list of corrected sentences
+        """
+        anal_dicts = self.prepare_analysis_dict_for_sentences_batch(sentences)
+        output_sentences = []
+        for sent_idx, each_data in enumerate(anal_dicts):
+
+            sentence_hypothesis = self.make_fixes(each_data, min_advantage_treshold)
+            output_sentences.append(sentence_hypothesis)
+
+        return output_sentences
+
+    def prepare_analysis_dict_for_sentences_batch(self, sentences):
+        """
+        The method which produces analysis dictionary of the sentence, it generates
+        substitution candidates of the segments of the input sentence.
+
+        :param sentence: str
+        :return: dict SentenceAnalysisDictionary
+        """
+        # preprocess
+        preprocessed_sentences = [self.preprocess_sentence(sentence) for sentence in sentences]
+
+        # tokenize sentences
+        tokenized_sentences = [self.lm.tokenize_sentence(sentence) for sentence in preprocessed_sentences]
+
+        # offset from the start of the batch
+        batch_offset = 0
+        batch_gen = self.chunk_generator(tokenized_sentences, ELMO_BATCH_SIZE)
+
+        analysis_dicts = []
+        for mini_batch_tokenized_sents in batch_gen:
+            elmo_datas_mini_batch = self.lm.elmo_lm(mini_batch_tokenized_sents)
+
+            # now we consequently execute hypotheses generation
+            for relative_offset, each_elmo_data in enumerate(elmo_datas_mini_batch):
+                absolute_offset = batch_offset + relative_offset
+                # analyse sentence, atomic (token-token) hypotheses generation:
+                analysis_dict = self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(
+                    {'input_sentence': preprocessed_sentences[absolute_offset],
+                     'tokenized_input_sentence': tokenized_sentences[absolute_offset]},
+                    each_elmo_data)
+                # multi-token - token hypotheses generation
+                merged_tokens_hypotheses_dict = self.generate_Nto1_hypotheses(
+                    analysis_dict['tokenized_input_sentence'], each_elmo_data)
+
+                analysis_dict['word_substitutions_candidates'] += merged_tokens_hypotheses_dict
+                analysis_dicts.append(analysis_dict)
+            # increment offset
+            batch_offset += ELMO_BATCH_SIZE
+
+        return analysis_dicts
+
+    def make_fixes_batch(self, analysis_dicts, min_advantage_treshold=4.0):
+        results=[]
+        for each_anal_dict in analysis_dicts:
+            results.append(self.make_fixes(each_anal_dict, min_advantage_treshold=min_advantage_treshold))
+
+        return results
 

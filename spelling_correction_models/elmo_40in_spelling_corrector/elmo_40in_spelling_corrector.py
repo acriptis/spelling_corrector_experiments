@@ -1,3 +1,5 @@
+import re
+from copy import deepcopy
 ################# Universal Import ###################################################
 import sys
 import os
@@ -12,10 +14,6 @@ sys.path.append(ROOT_DIR)
 from lettercaser import LettercaserForSpellchecker
 from language_models.elmolm_from_config import ELMOLM
 from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
-import numpy as np
-import re
-from copy import deepcopy
-
 
 # due to computational error 0.0 advantage may occur as small negative number,
 # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
@@ -49,26 +47,34 @@ def clean_dialog16_sentences_from_punctuation(sentences):
     """
     output_sentences = []
     for each_s in sentences:
-        sentence = each_s.translate(str.maketrans("", "", '?,()!;"'))
-        # clean from "..."
-        sentence = re.sub(r'\.\.\.', '', sentence)
-        if sentence[-1] == ".":
-            sentence = sentence[:-1]
-        # clean from "."
-        tokens = sentence.split()
+        if each_s.strip():
+            sentence = each_s.strip().translate(str.maketrans("", "", '?,()!;"'))
+            # clean from "..."
+            sentence = re.sub(r'\.\.\.', '', sentence)
 
-        postprocessed_tokens = []
-        for tok_idx, each_tok in enumerate(tokens):
-            if each_tok[-1] in ":-":
-                postprocessed_tokens.append(each_tok[:-1])
-            else:
-                postprocessed_tokens.append(each_tok)
+            if len(sentence) > 1 and sentence[-1] == ".":
+                sentence = sentence[:-1]
+            # clean from "."
+            tokens = sentence.split()
 
-        reassembled_sentence = " ".join(postprocessed_tokens)
+            postprocessed_tokens = []
+            for tok_idx, each_tok in enumerate(tokens):
+                if each_tok == "-" or each_tok == "--":
+                    # skip hyphens and dashes
+                    continue
 
-        # finally we need to remove excessive spaces?
-        reassembled_sentence = re.sub(" {2,}", " ", reassembled_sentence)
-        output_sentences.append(reassembled_sentence)
+                if each_tok[-1] in ":-":
+                    postprocessed_tokens.append(each_tok[:-1])
+                else:
+                    postprocessed_tokens.append(each_tok)
+
+            reassembled_sentence = " ".join(postprocessed_tokens)
+
+            # finally we need to remove excessive spaces?
+            reassembled_sentence = re.sub(" {2,}", " ", reassembled_sentence)
+            output_sentences.append(reassembled_sentence)
+        else:
+            output_sentences.append(each_s.strip())
     return output_sentences
 
 
@@ -148,7 +154,7 @@ class ELMO40inSpellingCorrector():
                     },
                     {
                         "class_name": "elmo_bilm",
-                        "mini_batch_size": 120,
+                        "mini_batch_size": 12,
                         "in": [
                             "tokens"
                         ],
