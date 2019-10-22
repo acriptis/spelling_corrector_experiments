@@ -166,7 +166,7 @@ class ELMOLM(BaseELMOLM):
         tok_wrapped = self.tokenize_sentence(sentence)
         init_states_bak = self.elmo_lm.init_states
         elmo_datas = self.elmo_lm([tok_wrapped])
-        probas = self.trace_sentence_probas_in_elmo_data(elmo_datas, tok_wrapped)
+        probas = self.trace_sentence_probas_in_elmo_datas_batch(elmo_datas, tok_wrapped)
 
         logit_probas = np.log10(probas)
         united_probas = np.sum(logit_probas, axis=1)
