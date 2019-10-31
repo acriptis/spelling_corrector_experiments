@@ -84,14 +84,15 @@ class ELMO40inSpellingCorrector():
     """
 
     def __init__(self, language_model=None, spelling_correction_candidates_generator=None,
-                 fix_treshold=10.0, max_num_fixes=5, data_path=None):
+                 fix_treshold=10.0, max_num_fixes=5, data_path=None, mini_batch_size=None):
         print("Init LetterCaser.")
         self._lettercaser = LettercaserForSpellchecker()
         print("Init language_model.")
         if language_model:
             self.lm = language_model
         else:
-            self.lm = self._init_elmo()
+
+            self.lm = self._init_elmo(mini_batch_size=mini_batch_size)
         print("Init spelling_correction_candidates_generator.")
         # DATA PATH
         if data_path:
@@ -118,21 +119,20 @@ class ELMO40inSpellingCorrector():
         self.fix_treshold = fix_treshold
         print("Initialization Completed.")
 
-    def _init_elmo(self):
+    def _init_elmo(self, mini_batch_size=None):
         """
         Initilize default ELMO LM if no specification was provided in configuration
         :return: ELMOLM instance
         """
         # TODO: azat substitute please with ELMO_inference component
-
         news_elmo_code = "elmo_ru_news"
         news_elmo_targz = "lm_elmo_ru_news.tar.gz"
 
-        news_simple_elmo_code = "elmo-lm-ready4fine-tuning-ru-news-simple"
-        news_elmo_simple_targz = "elmo-lm-ready4fine-tuning-ru-news-simple.tar.gz"
+        # news_simple_elmo_code = "elmo-lm-ready4fine-tuning-ru-news-simple"
+        # news_elmo_simple_targz = "elmo-lm-ready4fine-tuning-ru-news-simple.tar.gz"
 
-        wiki_elmo_code = "elmo-lm-ready4fine-tuning-ru-wiki"
-        wiki_elmo_targz = "elmo-lm-ready4fine-tuning-ru-wiki.tar.gz"
+        # wiki_elmo_code = "elmo-lm-ready4fine-tuning-ru-wiki"
+        # wiki_elmo_targz = "elmo-lm-ready4fine-tuning-ru-wiki.tar.gz"
 
         selected_model_dir = news_elmo_code
         selected_model_targz = news_elmo_targz
@@ -141,7 +141,9 @@ class ELMO40inSpellingCorrector():
         # selected_model_dir = news_simple_elmo_code
         # selected_model_targz = news_elmo_simple_targz
 
-        elmo_config = {
+        if not mini_batch_size:
+            mini_batch_size = 10
+        self.elmo_config = {
             "chainer": {
                 "in": [
                     "sentences"
@@ -154,11 +156,11 @@ class ELMO40inSpellingCorrector():
                     },
                     {
                         "class_name": "elmo_bilm",
-                        "mini_batch_size": 12,
+                        "mini_batch_size": mini_batch_size,
                         "in": [
                             "tokens"
                         ],
-                        "model_dir": "bidirectional_lms/%s" % selected_model_dir ,
+                        "model_dir": "bidirectional_lms/%s" % selected_model_dir,
                         "out": [
                             "pred_tokens"
                         ]
@@ -181,7 +183,7 @@ class ELMO40inSpellingCorrector():
                 ]
             }
         }
-        instance = ELMOLM(elmo_config)
+        instance = ELMOLM(self.elmo_config)
         return instance
 
     def _init_sccg(self):

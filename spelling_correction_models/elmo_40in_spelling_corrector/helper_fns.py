@@ -1,5 +1,6 @@
 from copy import deepcopy
-
+# maximum number of hypotheses in hypotheses hub for correction of one sentence
+HYPOHUB_MAX_ALLOWED_SIZE = 1000
 
 def estimate_the_best_s_hypotheses(data_analysis_dict, min_advantage_treshold=0.0):
     """
@@ -66,7 +67,11 @@ def estimate_the_best_s_hypotheses(data_analysis_dict, min_advantage_treshold=0.
         # print("suffixes_hypotheses after filtering")
         # print(suffixes_hypotheses)
         hypotheses_hub = hypotheses_hub.fork_for_suffixes_segment_hypotheses(suffixes_hypotheses)
-        # print(len(hypotheses_hub))
+        # print(str(current_token_idx) + " len(hypotheses_hub) " + str(len(hypotheses_hub)))
+
+        if len(hypotheses_hub)>HYPOHUB_MAX_ALLOWED_SIZE:
+            # prune hypotheses hub from bad hypotheses
+            hypotheses_hub.filter_the_best_hypotheses(top_k=HYPOHUB_MAX_ALLOWED_SIZE)
         # TODO prune hypotheses that has finish_index==current_token_idx, but dont prune hypotheses that are longer
 
     # TODO implement method:
@@ -312,7 +317,8 @@ class HypothesesHub():
 
     def filter_the_best_hypotheses(self, top_k=-1, advantage_treshold=None, pass_zero_hypothesis=True):
         """
-        lists top-k hypotheses,
+        sorts and filters hyptheses space for top_k BEST hypotheses.
+
         :param top_k: -1 or positive int: fixes number of hyyptheses to be propogated
         :param advantage_treshold: None or float, minimal advantage required for the item to
             be selected
@@ -321,7 +327,13 @@ class HypothesesHub():
         """
         # TODO implement me
         # TODO how to select base hypothesis?
-
+        # TODO assure that we prune hypotheses of the shortest length (long hypotheses shouldnt
+        # be pruned)
+        the_best_sentence_hypothesis = sorted(self.hypotheses,
+                                              key=lambda x: x.calc_advantage_score(), reverse=True)
+        if top_k>0:
+            the_best_sentence_hypothesis = the_best_sentence_hypothesis[:top_k]
+        self.hypotheses = the_best_sentence_hypothesis
         return self.hypotheses
 
     def __len__(self):
