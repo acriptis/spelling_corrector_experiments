@@ -3,3 +3,7 @@
 experiments
 __pycache__
 .ipynb_checkpoints
+*.txt
+*.csv
+*.json
+*.pkl
