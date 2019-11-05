@@ -7,8 +7,10 @@ import kenlm
 
 from deeppavlov.models.bidirectional_lms import elmo_bilm
 from deeppavlov.models.tokenizers.lazy_tokenizer import LazyTokenizer
+from language_models.base_elmo_lm import BaseELMOLM
 
-class ELMOLM(object):
+
+class ELMOLM(BaseELMOLM):
     """
     Class that estimates likelihood of sentence in russian language
 
@@ -75,48 +77,6 @@ class ELMOLM(object):
     #    elmo_distr = np.sum(elmo_distr, axis=1)
     #    return self._softmax(elmo_distr, axis=1)
 
-    @staticmethod
-    def chunk_generator(items_list, chunk_size):
-        """
-        Method to slice batches into chunks of minibatches
-        """
-        for i in range(0, len(items_list), chunk_size):
-            yield items_list[i:i + chunk_size]
-
-    def tokenize_sentence_batch(self, sentences_batch, wrap_s=True):
-        """
-        input sentences (list of strings)
-        ouputs list of lists of tokens
-        """
-        assert isinstance(sentences_batch, list)
-
-        # wrap with S tokens
-        if wrap_s:
-            tok_sents = [['<S>'] + sent.split() + ['</S>'] for sent in sentences_batch]
-        else:
-            tok_sents = [sent.split() for sent in sentences_batch]
-        return tok_sents
-
-    def tokenize_sentence(self, sentence, wrap_s=True):
-        """
-        """
-        tok_sent = sentence.split()
-        # wrap with S tokens
-        if wrap_s:
-            tok_sent = ['<S>'] + tok_sent + ['</S>']
-        return tok_sent
-
-    def analyze_sentence(self, sentence):
-        """
-        Returns elmo's parsing of a sentence
-        """
-        # tokenize
-
-        tok_wrapped = self.tokenize_sentence(sentence)
-        # analyze the sentence:
-        data = self.elmo_lm([tok_wrapped])[0]
-        return data
-
     def trace_sentence_probas_in_elmo_data(self, elmo_data, tokenized_sentence):
         """
         Given elmo data (results of estimation the sentence by ELMO LM) and tokenized sentence
@@ -176,20 +136,9 @@ class ELMOLM(object):
         right_logit = np.log10(right_p * multiplicator)
         return left_logit, right_logit
 
-    def get_word_idx(self, word):
-        return self.token2idx.get(word)
-
     def get_word_idx_or_unk(self, word):
         res = self.token2idx.get(word, self.IDX_UNK_TOKEN)
         return res, res == self.IDX_UNK_TOKEN
-
-    def estimate_likelihood_batch(self, sentences_batch, preserve_states=True, batch_size=10):
-        output_batch = []
-        for mini_batch in self.chunk_generator(sentences_batch, batch_size):
-            likelihoods_mini = self._estimate_likelihood_minibatch(mini_batch,
-                                                                   preserve_states=preserve_states)
-            output_batch.extend(likelihoods_mini)
-        return output_batch
 
     def _estimate_likelihood_minibatch(self, sentences_batch, preserve_states=True):
         """

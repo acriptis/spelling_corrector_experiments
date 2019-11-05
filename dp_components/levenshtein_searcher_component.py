@@ -16,6 +16,8 @@ class LevenshteinSearcherComponent(Component):
         words: list of every correct word
         max_distance: maximum allowed Damerau-Levenshtein distance between source words and candidates
         error_probability: assigned probability for every edit
+        oov_penalty: OutOfVocabulary penalty (negative float or zero) - penalty in logits for out
+            of vocabulary words
 
     Attributes:
         max_distance: maximum allowed Damerau-Levenshtein distance between source words and candidates
@@ -27,16 +29,21 @@ class LevenshteinSearcherComponent(Component):
     _punctuation = frozenset(string.punctuation)
 
     def __init__(self, words: Iterable[str], max_distance: float=1, error_probability: float=1e-4,
-                 alphabet=None, operation_costs=None,
+                 alphabet=None, operation_costs=None, oov_penalty=None,
                  *args, **kwargs):
         words = list({word.strip().lower().replace('ё', 'е') for word in words})
         if not alphabet:
             alphabet = sorted({letter for word in words for letter in word})
         self.max_distance = max_distance
         self.error_probability = log10(error_probability)
-#         self.vocab_penalty = self.error_probability * 2
-        self.vocab_penalty = 0
-        #
+
+        if oov_penalty:
+            self.vocab_penalty = oov_penalty
+        else:
+            # default case:
+            #         self.vocab_penalty = self.error_probability * 2
+            self.vocab_penalty = 0.0
+
         if not operation_costs:
             operation_costs = generate_operation_costs_dict(alphabet=alphabet)
         self.searcher = LevenshteinSearcher(alphabet, words, allow_spaces=True, euristics=2,
@@ -90,6 +97,10 @@ def generate_operation_costs_dict(alphabet):
     # make default costs dict without language specific substrings subtitution costs
     ops_costs = SegmentTransducer.make_default_operation_costs(alphabet)
 
+    karta_slov_costs_dict = generate_karta_slov_costs_dict()
+
+    ops_costs = recursive_dict_merge(ops_costs, karta_slov_costs_dict)
+
     # Let's show how deep the rabbit hole goes:
     distant_substitutions_costs = {
         "ться": {
@@ -104,9 +115,9 @@ def generate_operation_costs_dict(alphabet):
             "нить": 0.9,
         },
         "а": {
-            "aa": 1.0,
-            "aaa": 1.0,
-            "aaaа": 1.0,
+            "aa": 0.8,
+            "aaa": 0.9,
+            "aaaа": 0.9,
         },
         "е": {
             "еее": 1.0,
@@ -135,6 +146,8 @@ def generate_operation_costs_dict(alphabet):
         "жч": {
             "щщ": 1.0
         },
+        "вт": {"фф": 1.0},
+
         "сегодня": {
             "седня": 1.0
         },
@@ -154,7 +167,7 @@ def generate_operation_costs_dict(alphabet):
         "когда": {
             "када": 1.0
         },
-        "собственно":{
+        "собственно": {
             "собстно": 1.0
         },
         "в общем": {
@@ -172,10 +185,6 @@ def generate_operation_costs_dict(alphabet):
         }
     }
 
-    merged_costs = recursive_dict_merge(ops_costs, distant_substitutions_costs)
+    ops_costs = recursive_dict_merge(ops_costs, distant_substitutions_costs)
 
-    karta_slov_costs_dict = generate_karta_slov_costs_dict()
-
-    operation_costs = recursive_dict_merge(merged_costs, karta_slov_costs_dict)
-
-    return operation_costs
+    return ops_costs

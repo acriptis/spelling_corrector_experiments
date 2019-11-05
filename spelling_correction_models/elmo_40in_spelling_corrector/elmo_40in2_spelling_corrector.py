@@ -1,9 +1,17 @@
+import datetime as dt
 import numpy as np
 from .elmo_40in_spelling_corrector import ELMO40inSpellingCorrector
 from .helper_fns import estimate_the_best_s_hypotheses
 
 # increment of the logit for merging 2tokens->1token:
 ERROR_SCORE_FOR_MERGE = -2.0
+
+# Size of batch in elmo lm:
+ELMO_BATCH_SIZE = 8
+
+# batch size measured in tokens count in sentences of the batch
+ELMO_BATCH_TOKEN_SIZE = 500
+# TODO fix duplicated parameter. Need tor etrireve batch size from elmo lm model?
 
 
 class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
@@ -195,4 +203,163 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
     @staticmethod
     def fixes_maker(analysis_data, max_num_fixes=5, fix_treshold=10.0, remove_s=True):
         raise Exception("Implement me!")
+
+    # #######################################################################################
+    # BATCHY OPTIMIZED METHODS
+    @staticmethod
+    def chunk_generator(items_list, chunk_size):
+        """
+        Method to slice batches into chunks of minibatches
+        """
+        for i in range(0, len(items_list), chunk_size):
+            yield items_list[i:i + chunk_size]
+
+    @staticmethod
+    def chunk_generator_token_weighted(tokenized_sentences_list, max_tokens_count=200):
+        """
+        Method to slice batches into chunks of minibatches weighted by cumulative tokens count.
+
+        In contrast to basic chunk generator which just yelds batches of the same number of
+        sentences this method yelds batches of variable number of sentences but with approximately
+        the same number of tokens.
+
+        Algorithm:
+        given a max number of tokens in batch we populate a batch with sentences and accumulating
+        total number of tokens, if next sentence overflows numbsdsd...
+        """
+        tokens_accumulator = 0
+        d_batch = []
+        # TODO check that one sentence is not longer than max_tokens_count
+
+        for each_sent in tokenized_sentences_list:
+            if len(each_sent) + tokens_accumulator > max_tokens_count:
+                # yeld!
+                if len(d_batch) > 0:
+                    print("dynamic batch size: " + str(len(d_batch)))
+                    yield d_batch
+                    d_batch = [each_sent]
+                    tokens_accumulator = len(each_sent)
+
+                else:
+                    print(each_sent)
+                    raise Exception("Sentence is longer than max_tokens_count? Empty batch!")
+            else:
+                # if we fit constraints then append the sentence to the dynamic batch
+                d_batch.append(each_sent)
+                tokens_accumulator += len(each_sent)
+        if len(d_batch)>0:
+            print("dynamic batch size: " + str(len(d_batch)))
+            yield d_batch
+
+    def process_sentences_batch(self, sentences, min_advantage_treshold=1.0, max_tokens_count=None, token_length_sorting=True):
+        """
+        Interface method for batchy estimation of corrections
+        Given a batch of sentences it returns a batch of corrections
+        :param sentences: list of input sentences
+        :return: list of corrected sentences
+        """
+
+        if not max_tokens_count:
+            max_tokens_count=ELMO_BATCH_TOKEN_SIZE
+
+        if token_length_sorting:
+            # TODO
+            # sort sentences by token length
+            # and save initial order
+            # source_idxs, sentences = sorted(enumerate(sentences), key=lambda n, x: len(x.split()))
+            results = sorted(enumerate(sentences), key=lambda x: len(x[1].split()), reverse=True)
+            source_idxs, sentences = zip(*results)
+            # now we need to build mapping of new sorting indexes into old
+            # to return results in the same order
+
+
+        start_dt = dt.datetime.now()
+        anal_dicts = self.prepare_analysis_dict_for_sentences_batch(
+            sentences, max_tokens_count=max_tokens_count)
+        middle_dt = dt.datetime.now()
+        print("datetimes. calculation of elmo analysis dicts: %s" % (str(middle_dt - start_dt)))
+        output_sentences = []
+
+        for sent_idx, each_data in enumerate(anal_dicts):
+
+            sentence_hypothesis = self.make_fixes(each_data, min_advantage_treshold)
+            # Letter caser:
+            # restore capitalization:
+            output_sentence_tokens = self._lettercaser([each_data['input_sentence'].split()],
+                                                       [sentence_hypothesis.split()])[0]
+            output_sentence = " ".join(output_sentence_tokens)
+
+            # output_sentences.append(sentence_hypothesis)
+            output_sentences.append(output_sentence)
+        fin_dt = dt.datetime.now()
+        print("datetimes. making_fixes: %s" % (str(fin_dt-middle_dt)))
+        print("datetimes. total calculation time: %s" % str(fin_dt-start_dt))
+        # restore ordering:
+        if token_length_sorting:
+            output_sentences_2 = [None]*len(sentences)
+            for idx, each_sentence in enumerate(output_sentences):
+                output_sentences_2[source_idxs[idx]] = each_sentence
+
+            output_sentences = output_sentences_2
+        return output_sentences
+
+    def prepare_analysis_dict_for_sentences_batch(self, sentences, max_tokens_count=None):
+        """
+        The method which produces analysis dictionary of the sentence, it generates
+        substitution candidates of the segments of the input sentence.
+
+        :param sentence: str
+        :return: dict SentenceAnalysisDictionary
+        """
+
+        # preprocess
+        preprocessed_sentences = [self.preprocess_sentence(sentence) for sentence in sentences]
+
+        # tokenize sentences
+        tokenized_sentences = [self.lm.tokenize_sentence(sentence) for sentence in preprocessed_sentences]
+
+        # offset from the start of the batch
+        batch_offset = 0
+        # batch_gen = self.chunk_generator(tokenized_sentences, ELMO_BATCH_SIZE)
+        if not max_tokens_count:
+            max_tokens_count=ELMO_BATCH_TOKEN_SIZE
+        batch_gen = self.chunk_generator_token_weighted(tokenized_sentences,
+                                                        max_tokens_count=max_tokens_count)
+
+        analysis_dicts = []
+
+        for mini_batch_tokenized_sents in batch_gen:
+            # minibatch start:
+            start_dt = dt.datetime.now()
+            elmo_datas_mini_batch = self.lm.elmo_lm(mini_batch_tokenized_sents)
+            middle_dt = dt.datetime.now()
+            # now we consequently execute hypotheses generation
+            for relative_offset, each_elmo_data in enumerate(elmo_datas_mini_batch):
+                absolute_offset = batch_offset + relative_offset
+                # analyse sentence, atomic (token-token) hypotheses generation:
+                analysis_dict = self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(
+                    {
+                        # 'input_sentence': preprocessed_sentences[absolute_offset],
+                        'input_sentence': sentences[absolute_offset],
+                        'tokenized_input_sentence': tokenized_sentences[absolute_offset]},
+                    each_elmo_data)
+                # multi-token - token hypotheses generation
+                merged_tokens_hypotheses_dict = self.generate_Nto1_hypotheses(
+                    analysis_dict['tokenized_input_sentence'], each_elmo_data)
+
+                analysis_dict['word_substitutions_candidates'] += merged_tokens_hypotheses_dict
+                analysis_dicts.append(analysis_dict)
+            # increment offset with size of batch
+            batch_offset += len(mini_batch_tokenized_sents)
+            fin_dt = dt.datetime.now()
+            print("datetimes. calculation of elmo analysis matricies in minibatch: %s, generating_hypotheses: %s" % (
+            str(middle_dt - start_dt), str(fin_dt - middle_dt)))
+        return analysis_dicts
+
+    def make_fixes_batch(self, analysis_dicts, min_advantage_treshold=4.0):
+        results=[]
+        for each_anal_dict in analysis_dicts:
+            results.append(self.make_fixes(each_anal_dict, min_advantage_treshold=min_advantage_treshold))
+
+        return results
 

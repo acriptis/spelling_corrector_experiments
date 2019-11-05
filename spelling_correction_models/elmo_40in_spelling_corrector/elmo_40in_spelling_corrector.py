@@ -1,3 +1,5 @@
+import re
+from copy import deepcopy
 ################# Universal Import ###################################################
 import sys
 import os
@@ -12,10 +14,6 @@ sys.path.append(ROOT_DIR)
 from lettercaser import LettercaserForSpellchecker
 from language_models.ELMO_inference import ELMOLM
 from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
-import numpy as np
-import re
-from copy import deepcopy
-DATA_PATH = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
 
 # due to computational error 0.0 advantage may occur as small negative number,
 # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
@@ -32,6 +30,10 @@ TOKEN_SPLIT_ERROR_SCORE = -2.0
 # weighted distance limit for levenshtein search:
 LEVENSHTEIN_MAX_DIST = 1.0
 
+# out of vocabulary penalty
+OOV_PENALTY = -1.0
+
+
 def clean_dialog16_sentences_from_punctuation(sentences):
     """
     Cleans sentences list from some punctuation
@@ -45,26 +47,34 @@ def clean_dialog16_sentences_from_punctuation(sentences):
     """
     output_sentences = []
     for each_s in sentences:
-        sentence = each_s.translate(str.maketrans("", "", '?,()!;"'))
-        # clean from "..."
-        sentence = re.sub(r'\.\.\.', '', sentence)
-        if sentence[-1] == ".":
-            sentence = sentence[:-1]
-        # clean from "."
-        tokens = sentence.split()
+        if each_s.strip():
+            sentence = each_s.strip().translate(str.maketrans("", "", '?,()!;"'))
+            # clean from "..."
+            sentence = re.sub(r'\.\.\.', '', sentence)
 
-        postprocessed_tokens = []
-        for tok_idx, each_tok in enumerate(tokens):
-            if each_tok[-1] in ":-":
-                postprocessed_tokens.append(each_tok[:-1])
-            else:
-                postprocessed_tokens.append(each_tok)
+            if len(sentence) > 1 and sentence[-1] == ".":
+                sentence = sentence[:-1]
+            # clean from "."
+            tokens = sentence.split()
 
-        reassembled_sentence = " ".join(postprocessed_tokens)
+            postprocessed_tokens = []
+            for tok_idx, each_tok in enumerate(tokens):
+                if each_tok == "-" or each_tok == "--":
+                    # skip hyphens and dashes
+                    continue
 
-        # finally we need to remove excessive spaces?
-        reassembled_sentence = re.sub(" {2,}", " ", reassembled_sentence)
-        output_sentences.append(reassembled_sentence)
+                if each_tok[-1] in ":-":
+                    postprocessed_tokens.append(each_tok[:-1])
+                else:
+                    postprocessed_tokens.append(each_tok)
+
+            reassembled_sentence = " ".join(postprocessed_tokens)
+
+            # finally we need to remove excessive spaces?
+            reassembled_sentence = re.sub(" {2,}", " ", reassembled_sentence)
+            output_sentences.append(reassembled_sentence)
+        else:
+            output_sentences.append(each_s.strip())
     return output_sentences
 
 
@@ -74,15 +84,29 @@ class ELMO40inSpellingCorrector():
     """
 
     def __init__(self, language_model=None, spelling_correction_candidates_generator=None,
-                 fix_treshold=10.0, max_num_fixes=5):
+                 fix_treshold=10.0, max_num_fixes=5, data_path=None, mini_batch_size=None):
         print("Init LetterCaser.")
         self._lettercaser = LettercaserForSpellchecker()
         print("Init language_model.")
         if language_model:
             self.lm = language_model
         else:
-            self.lm = self._init_elmo()
+
+            self.lm = self._init_elmo(mini_batch_size=mini_batch_size)
         print("Init spelling_correction_candidates_generator.")
+        # DATA PATH
+        if data_path:
+            self._data_path = data_path
+        else:
+            # import sys
+            import os
+
+            SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+            ROOT_DIR = os.path.dirname(os.path.dirname(SELF_DIR))
+            DATA_PATH = ROOT_DIR + '/data'
+            # = "/home/alx/Cloud/spell_corr/py_spelling_corrector/data/"
+            self._data_path = DATA_PATH
+
         if spelling_correction_candidates_generator:
             self.sccg = spelling_correction_candidates_generator
         else:
@@ -95,12 +119,74 @@ class ELMO40inSpellingCorrector():
         self.fix_treshold = fix_treshold
         print("Initialization Completed.")
 
-    def _init_elmo(self):
+    def _init_elmo(self, mini_batch_size=None):
         """
         Initilize default ELMO LM if no specification was provided in configuration
         :return: ELMOLM instance
         """
-        instance = ELMOLM(model_dir="~/.deeppavlov/downloads/embeddings/elmo_ru_news/")
+
+        # instance = ELMOLM(model_dir="~/.deeppavlov/downloads/embeddings/elmo_ru_news/")
+
+        # TODO: azat substitute please with ELMO_inference component
+        news_elmo_code = "elmo_ru_news"
+        news_elmo_targz = "lm_elmo_ru_news.tar.gz"
+
+        # news_simple_elmo_code = "elmo-lm-ready4fine-tuning-ru-news-simple"
+        # news_elmo_simple_targz = "elmo-lm-ready4fine-tuning-ru-news-simple.tar.gz"
+
+        # wiki_elmo_code = "elmo-lm-ready4fine-tuning-ru-wiki"
+        # wiki_elmo_targz = "elmo-lm-ready4fine-tuning-ru-wiki.tar.gz"
+
+        selected_model_dir = news_elmo_code
+        selected_model_targz = news_elmo_targz
+        # selected_model_dir = wiki_elmo_code
+        # selected_model_targz = wiki_elmo_targz
+        # selected_model_dir = news_simple_elmo_code
+        # selected_model_targz = news_elmo_simple_targz
+
+        if not mini_batch_size:
+            mini_batch_size = 10
+        self.elmo_config = {
+            "chainer": {
+                "in": [
+                    "sentences"
+                ],
+                "pipe": [
+                    {
+                        "in": ["sentences"],
+                        "class_name": "lazy_tokenizer",
+                        "out": ["tokens"]
+                    },
+                    {
+                        "class_name": "elmo_bilm",
+                        "mini_batch_size": mini_batch_size,
+                        "in": [
+                            "tokens"
+                        ],
+                        "model_dir": "bidirectional_lms/%s" % selected_model_dir,
+                        "out": [
+                            "pred_tokens"
+                        ]
+                    }
+                ],
+                "out": [
+                    "pred_tokens"
+                ]
+            },
+            "metadata": {
+                "requirements": [
+                    "../dp_requirements/tf.txt",
+                    "../dp_requirements/elmo.txt"
+                ],
+                "download": [
+                    {
+                        "url": "http://files.deeppavlov.ai/deeppavlov_data/%s" % selected_model_targz,
+                        "subdir": "bidirectional_lms/"
+                    }
+                ]
+            }
+        }
+        instance = ELMOLM(self.elmo_config)
         return instance
 
     def _init_sccg(self):
@@ -109,7 +195,7 @@ class ELMO40inSpellingCorrector():
         :return: instance of spelling correction candidates generator
         """
         # TODO refactor with dynamic dictionary
-        path_to_dictionary = DATA_PATH + "compreno_wordforms.txt"
+        path_to_dictionary = self._data_path + "/compreno_wordforms.txt"
 
         # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
 
@@ -119,7 +205,9 @@ class ELMO40inSpellingCorrector():
             self.words_dict = dict_file.read().splitlines()
 
         lsc = LevenshteinSearcherComponent(words=self.words_dict,
-                                           max_distance=LEVENSHTEIN_MAX_DIST)
+                                           max_distance=LEVENSHTEIN_MAX_DIST,
+                                           oov_penalty=OOV_PENALTY
+                                           )
         return lsc
 
     def preprocess_sentence(self, sentence):

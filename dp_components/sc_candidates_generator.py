@@ -64,6 +64,12 @@ class SpellingCorrectionCandidatesGenerator():
         elif token in ["помойму", "помоиму"]:
             w_forms.append("по-моему")
             scores.append(self.FREQUENT_ERRORS_DECREMENT_SCORE)
+        elif token in ["тыщ", "тыщь"]:
+            w_forms.append("тысяч")
+            scores.append(self.FREQUENT_ERRORS_DECREMENT_SCORE)
+        elif token in ["щас", "щаз", "счас", "счаз"]:
+            w_forms.append("сейчас")
+            scores.append(self.FREQUENT_ERRORS_DECREMENT_SCORE)
 
         return scores, w_forms
 
