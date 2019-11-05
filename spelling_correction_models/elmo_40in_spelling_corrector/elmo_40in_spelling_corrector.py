@@ -12,7 +12,8 @@ print(ROOT_DIR)
 sys.path.append(ROOT_DIR)
 # #####################################################
 from lettercaser import LettercaserForSpellchecker
-from language_models.ELMO_inference import ELMOLM
+# from language_models.ELMO_inference import ELMOLM
+from language_models.elmolm_from_config import ELMOLM
 from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
 
 # due to computational error 0.0 advantage may occur as small negative number,
