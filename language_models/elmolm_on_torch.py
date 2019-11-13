@@ -89,8 +89,8 @@ class ELMOLMTorch(BaseELMOLM):
         #     # wrapped tokenization, then we need to unwrap it because torchy ELMO wraps itself
         #     tokenized_sentences = [ts[1:len(ts)-1] for ts in tokenized_sentences]
 
-        print("tokenized_sentences")
-        print(tokenized_sentences)
+        # print("tokenized_sentences")
+        # print(tokenized_sentences)
         # TODO grab states
         # use batch_to_ids to convert sentences to character ids
         #     sentences = [['First', 'sentence', '.'], ['Another', '.']]
@@ -102,9 +102,9 @@ class ELMOLMTorch(BaseELMOLM):
         # TODO check correctness:
         last_layer_activations = elmo_output['activations'][2]
         # results = self._ff(last_layer_activations)
-        print("last_layer_activations:")
-        print(last_layer_activations)
-        print(last_layer_activations.shape)
+        # print("last_layer_activations:")
+        # print(last_layer_activations)
+        # print(last_layer_activations.shape)
         # pre_last_layer_activations = elmo_output['activations'][1]
         # print("pre_last_layer_activations:")
         # print(pre_last_layer_activations)
@@ -136,26 +136,26 @@ class ELMOLMTorch(BaseELMOLM):
 
         tfh = the_first_half.cpu().detach().numpy()
         trh = the_right_half.cpu().detach().numpy()
-        print('min, max')
-        print(min(tfh), max(tfh))
-        print('std, mean, sum')
-        print(np.std(tfh),
-              np.mean(tfh), np.sum(tfh))
-        print("the_first_half:")
-        print(tfh)
-        print(tfh.shape)
-        print("the_right_half:")
-        print(trh)
-        print(trh.shape)
-        # lla = last_layer_activations.cpu().detach().numpy()
-        print("the_right_half Activations")
-        lla_ravel = trh.ravel()
-        for each_num in lla_ravel:
-            print(each_num, end=", ")
-        print("___")
-        # just test if it print all values
-        print(lla_ravel)
-        print("___")
+        # print('min, max')
+        # print(min(tfh), max(tfh))
+        # print('std, mean, sum')
+        # print(np.std(tfh),
+        #       np.mean(tfh), np.sum(tfh))
+        # print("the_first_half:")
+        # print(tfh)
+        # print(tfh.shape)
+        # print("the_right_half:")
+        # print(trh)
+        # print(trh.shape)
+        # # lla = last_layer_activations.cpu().detach().numpy()
+        # print("the_right_half Activations")
+        # lla_ravel = trh.ravel()
+        # for each_num in lla_ravel:
+        #     print(each_num, end=", ")
+        # print("___")
+        # # just test if it print all values
+        # print(lla_ravel)
+        # print("___")
 
         return softmaxed_output.cpu().detach().numpy()
 

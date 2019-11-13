@@ -62,7 +62,7 @@ class ElmoLSTMFrozenStates(ElmoLstm):
         # Restore the original indices and return the sequence.
         # Has shape (num_layers, batch_size, sequence_length, hidden_size)
         res = stacked_sequence_output.index_select(1, restoration_indices)
-        print("stacked_sequence_output(res):")
-        print(res)
-        print(res.shape)
+        # print("stacked_sequence_output(res):")
+        # print(res)
+        # print(res.shape)
         return res

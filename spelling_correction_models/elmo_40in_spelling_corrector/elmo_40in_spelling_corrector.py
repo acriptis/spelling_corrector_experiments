@@ -7,7 +7,7 @@ import os
 SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 PREROOT_DIR = os.path.dirname(SELF_DIR)
 ROOT_DIR = os.path.dirname(PREROOT_DIR)
-
+from nltk.tokenize import sent_tokenize, word_tokenize
 print(ROOT_DIR)
 sys.path.append(ROOT_DIR)
 # #####################################################
@@ -15,7 +15,7 @@ from lettercaser import LettercaserForSpellchecker
 # from language_models.ELMO_inference import ELMOLM
 from language_models.elmolm_from_config import ELMOLM
 from dp_components.levenshtein_searcher_component import LevenshteinSearcherComponent
-
+from language_models.utils import yo_substitutor
 # due to computational error 0.0 advantage may occur as small negative number,
 # usually it is a zero-hypothesis (no need for spelling correction hypothesis),
 # so we need to grasp them.
@@ -56,7 +56,8 @@ def clean_dialog16_sentences_from_punctuation(sentences):
             if len(sentence) > 1 and sentence[-1] == ".":
                 sentence = sentence[:-1]
             # clean from "."
-            tokens = sentence.split()
+            # tokens = sentence.split()
+            tokens = word_tokenize(sentence)
 
             postprocessed_tokens = []
             for tok_idx, each_tok in enumerate(tokens):
@@ -85,7 +86,18 @@ class ELMO40inSpellingCorrector():
     """
 
     def __init__(self, language_model=None, spelling_correction_candidates_generator=None,
-                 fix_treshold=10.0, max_num_fixes=5, data_path=None, mini_batch_size=None):
+                 fix_treshold=10.0, max_num_fixes=5, data_path=None, mini_batch_size=None,
+                 frozen_words_regex_patterns=['тинькоф+', "греф", "писец", "кв\.", "м\.", "квортира", "пирдуха"]):
+        """
+
+        :param language_model:
+        :param spelling_correction_candidates_generator:
+        :param fix_treshold:
+        :param max_num_fixes:
+        :param data_path:
+        :param mini_batch_size:
+        :param frozen_words_regex_patterns: list of words regexp patterns which are prohibited for correction (patterns only for tokens)
+        """
         print("Init LetterCaser.")
         self._lettercaser = LettercaserForSpellchecker()
         print("Init language_model.")
@@ -118,6 +130,12 @@ class ELMO40inSpellingCorrector():
 
         # minimal likelihood advantage treshold for fixing the sentence
         self.fix_treshold = fix_treshold
+
+        if not frozen_words_regex_patterns:
+            self.frozen_words_regex_patterns = []
+        else:
+            assert isinstance(frozen_words_regex_patterns, list)
+            self.frozen_words_regex_patterns = [re.compile(pat) for pat in frozen_words_regex_patterns]
         print("Initialization Completed.")
 
     def _init_elmo(self, mini_batch_size=None):
@@ -214,7 +232,10 @@ class ELMO40inSpellingCorrector():
     def preprocess_sentence(self, sentence):
         # lowercase
         lowercased_sentence = sentence.lower()
-        # TODO depunctuate ?
+
+        # substitute ё:
+        lowercased_sentence = yo_substitutor(lowercased_sentence)
+
         return lowercased_sentence
 
     def process_sentence(self, sentence):
@@ -237,7 +258,8 @@ class ELMO40inSpellingCorrector():
                                            fix_treshold=self.fix_treshold)
 
         # restore capitalization:
-        output_sentence = self._lettercaser([sentence.split()], [output_sentence.split()])
+        # output_sentence = self._lettercaser([sentence.split()], [output_sentence.split()])
+        output_sentence = self._lettercaser([word_tokenize(sentence)], [word_tokenize(output_sentence)])
 
         return output_sentence
 
@@ -394,6 +416,11 @@ class ELMO40inSpellingCorrector():
             filter_by_lm_lower_bound = ZERO_LOWER_BOUND
         tok_wrapped = sentence_analysis_dict['tokenized_input_sentence']
 
+        # provide case information:
+        if 'tokenized_cased_input_sentence' in sentence_analysis_dict:
+            tok_wrapped_cased = sentence_analysis_dict['tokenized_cased_input_sentence']
+        else:
+            tok_wrapped_cased = tok_wrapped
         # elmo data array contains a ndarray of size: [1, len(sentence tokens), 1000000]
         candidates_lists = self.sccg([tok_wrapped])
         # find the best substitutions in sentence from candidates sets
@@ -416,6 +443,27 @@ class ELMO40inSpellingCorrector():
             if tok_idx == 0:
                 continue
 
+            # if token in list of frozen patterns
+            if self.frozen_words_regex_patterns:
+                res = any(each_pat.match(tok_wrapped_cased[tok_idx]) for each_pat in self.frozen_words_regex_patterns)
+                if res:
+                    # matched pattern for blocking corrections, add zero hypothesis and continue
+                    candidate_dict = {
+                        # advantage of pure language model:
+                        "lm_advantage": 0,
+                        # advantage with error score:
+                        "advantage": 0,
+
+                        "token_str": tok_wrapped_cased[tok_idx],
+                        # if it is zero hypothesis
+                        "zero_hypothesis": True,
+                        "error_score": 0,
+                        "token_merges": 0,
+                        "token_splits": 0
+                    }
+                    word_substitutions_candidates[tok_idx]['top_k_candidates'].append(
+                        candidate_dict)
+                    continue
             # retieve the best candidates
             # 1. retrive best from levenshtein list
             levenshtein_candidates_for_current_token = candidates_list_for_sentence[tok_idx]
@@ -460,19 +508,30 @@ class ELMO40inSpellingCorrector():
                     # with reduced precision by estimating left word advantage by
                     # left_probas in elmo_data, and right_word by taking right proba for it.
                     # check it?
-                    mini_tokens = candidate_str.split()
-                    assert len(mini_tokens) == 2
+                    # mini_tokens = candidate_str.split()
+                    mini_tokens = word_tokenize(candidate_str)
+                    # TODO if len of splitting more than 2 then we may lose alot in precision!
+                    # if len(mini_tokens) != 2:
+                    #     import ipdb; ipdb.set_trace()
+                    #
+                    # else:
+                    #     rightmost_index = len(mini_tokens) - 1
+                    # assert len(mini_tokens) == 2, "Tokens count violation"
+
+                    # to support multitoken splits
+                    rightmost_index = len(mini_tokens) - 1
+
                     left_logit, _ = self.lm.retrieve_logits_of_particular_token(elmo_data,
                                                                                           tok_idx,
                                                                                           mini_tokens[0])
                     _, right_logit = self.lm.retrieve_logits_of_particular_token(elmo_data,
                                                                                 tok_idx,
-                                                                                mini_tokens[1])
+                                                                                mini_tokens[rightmost_index])
                     # provide information that token split occured:
-                    candidate_dict["token_splits"] = 1
+                    candidate_dict["token_splits"] = len(mini_tokens)-1
                     # TODO modify likelihoods or error score? otherwise it overestimates
-                    assert left_logit < 0
-                    assert right_logit < 0
+                    assert left_logit < 0, "Left logit must be negative"
+                    assert right_logit < 0, "Right logit must be negative"
                     # multiply with 1.5 all logits becasue we use hacky over-estimation from ELMO
                     left_logit *= TOKEN_SPLIT_LOGIT_MULTIPLICATOR
                     right_logit *= TOKEN_SPLIT_LOGIT_MULTIPLICATOR
@@ -492,10 +551,55 @@ class ELMO40inSpellingCorrector():
                 candidate_dict['advantage'] = advantage_score
 
                 if candidate_str == tok_wrapped[tok_idx]:
-                    # zero hypothesis
+                    # ZERO HYPOTHESIS case
                     candidate_dict['zero_hypothesis'] = True
                     candidate_dict['error_score'] = 0.0
                     word_substitutions_candidates[tok_idx]['top_k_candidates'].append(candidate_dict)
+                    # TODO hack with abbreviations
+                    # TODO refactor me!
+                    # TODO refactor magic numbers
+                    case = self._lettercaser.determine_lettercase(tok_wrapped_cased[tok_idx])
+                    if case=='capitalize' and tok_idx>1:
+                        # first token in sentence capitalization is not important
+                        candidate_dict['advantage'] += 1.5
+                        candidate_dict['case'] = case
+
+                    elif case == 'upper':
+                        # boost advantage of zero hypothesis?
+                        # may be it is better to reduce advantage of all others?
+                        candidate_dict['advantage'] += 5.0
+                        candidate_dict['case'] = case
+
+                    # abbreviation fuzzy match:
+                    is_abbrev = re.match("([A-ZА-Я]\.*){2,}s?", tok_wrapped_cased[tok_idx])
+                    if is_abbrev:
+                        candidate_dict['advantage'] += 5.0
+                        candidate_dict['is_abbrev'] = True
+
+                    # SHORT WORDS HANDLING:
+                    # if token is 1-2 letters in length
+                    if len(tok_wrapped_cased[tok_idx])==1:
+                        # huge adbvantage to 1 letters
+                        candidate_dict['advantage'] += 4.0
+                        candidate_dict['comment'] = "1letter word"
+
+                    if len(tok_wrapped_cased[tok_idx])==2:
+                        # last symbol is dot
+                        candidate_dict['advantage'] += 0.5
+                        candidate_dict['comment'] = "2letter word"
+
+                    if tok_wrapped_cased[tok_idx][-1]=="." and len(tok_wrapped_cased[tok_idx])<=3:
+                        # last symbol is dot
+                        candidate_dict['advantage'] += 4.0
+                        candidate_dict['comment'] = "short word with punctuation"
+
+                    digits_regexp = re.compile('\d')
+
+                    if digits_regexp.search(tok_wrapped_cased[tok_idx]):
+                        # has digit
+                        candidate_dict['advantage'] += 4.0
+                        candidate_dict['comment'] = "has digit"
+
                 # elif advantage_score >= ZERO_LOWER_BOUND:
                 # temporarly filter by lm_advantage only:
                 elif lm_advantage >= filter_by_lm_lower_bound:

@@ -1,5 +1,6 @@
 import numpy as np
-
+# from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.tokenize import word_tokenize
 
 class BaseELMOLM():
     """
@@ -25,15 +26,21 @@ class BaseELMOLM():
 
         # wrap with S tokens
         if wrap_s:
-            tok_sents = [['<S>'] + sent.split() + ['</S>'] for sent in sentences_batch]
+            # split tokenizer
+            # tok_sents = [['<S>'] + sent.split() + ['</S>'] for sent in sentences_batch]
+            # nltk tokenizer:
+            tok_sents = [['<S>'] + word_tokenize(sent) + ['</S>'] for sent in sentences_batch]
         else:
-            tok_sents = [sent.split() for sent in sentences_batch]
+            # tok_sents = [sent.split() for sent in sentences_batch]
+            tok_sents = [word_tokenize(sent) for sent in sentences_batch]
         return tok_sents
 
     def tokenize_sentence(self, sentence, wrap_s=True):
         """
         """
-        tok_sent = sentence.split()
+        # tok_sent = sentence.split()
+        tok_sent = word_tokenize(sentence)
+
         # wrap with S tokens
         if wrap_s:
             tok_sent = ['<S>'] + tok_sent + ['</S>']

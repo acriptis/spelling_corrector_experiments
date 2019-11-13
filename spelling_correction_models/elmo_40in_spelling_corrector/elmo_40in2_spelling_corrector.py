@@ -1,8 +1,10 @@
 import datetime as dt
 import numpy as np
+from rusenttokenize import ru_sent_tokenize
+from nltk.tokenize import sent_tokenize, word_tokenize
 from .elmo_40in_spelling_corrector import ELMO40inSpellingCorrector
 from .helper_fns import estimate_the_best_s_hypotheses
-
+from language_models.utils import detokenize
 # increment of the logit for merging 2tokens->1token:
 ERROR_SCORE_FOR_MERGE = -2.0
 
@@ -45,9 +47,14 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
         output_sentence = hypotheses[0].text
 
         # restore capitalization:
-        output_sentence_tokens = self._lettercaser([analysis_dict['input_sentence'].split()],
-                                                   [output_sentence.split()])[0]
-        output_sentence = " ".join(output_sentence_tokens)
+        # output_sentence_tokens = self._lettercaser([analysis_dict['input_sentence'].split()],
+        #                                            [output_sentence.split()])[0]
+        output_sentence_tokens = self._lettercaser([word_tokenize(analysis_dict['input_sentence'])],
+                                                   [word_tokenize(output_sentence)])[0]
+
+
+        # output_sentence = " ".join(output_sentence_tokens)
+        output_sentence = detokenize(output_sentence_tokens)
         return output_sentence
 
     def prepare_analysis_dict_for_sentence(self, sentence):
@@ -242,7 +249,13 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
 
                 else:
                     print(each_sent)
-                    raise Exception("Sentence is longer than max_tokens_count? Empty batch!")
+                    d_batch = [each_sent]
+                    print("Sentence is longer than max_tokens_count?")
+                    yield d_batch
+                    tokens_accumulator = 0
+                    d_batch = []
+
+                    # raise Exception("Sentence is longer than max_tokens_count? Empty batch!")
             else:
                 # if we fit constraints then append the sentence to the dynamic batch
                 d_batch.append(each_sent)
@@ -251,27 +264,51 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
             print("dynamic batch size: " + str(len(d_batch)))
             yield d_batch
 
-    def process_sentences_batch(self, sentences, min_advantage_treshold=1.0, max_tokens_count=None, token_length_sorting=True):
+    def process_sentences_batch(self, sentences, min_advantage_treshold=1.0, max_tokens_count=None,
+                                token_length_sorting=True, supply_anal_dict=False,
+                                multisentences=False):
         """
         Interface method for batchy estimation of corrections
         Given a batch of sentences it returns a batch of corrections
         :param sentences: list of input sentences
+        :param supply_anal_dict: if true then returns anal dicts for all sentences, used for
+            debugging and analysis of errors
+        :param multisentences: if true then each element of batch may be a multiple sentence string,
+            so we preprocess them by splitting into sentences.
         :return: list of corrected sentences
         """
 
         if not max_tokens_count:
             max_tokens_count=ELMO_BATCH_TOKEN_SIZE
+        # ###############################################################################
+        if multisentences:
+            # TODO make as function decorator?
+            # we expect each input string is a multisentence, we need to split them into sentences
+            # and then process it, after that we need to restore sentence structure by joining
+            # sentences that occured in the same input string.
 
+            # list of elementary sentences which are retrieved from input by sentence splitting:
+            flat_sents_list = []
+            # list which stores how many consequent sentences are must be joined into one input string
+            list_of_lengths = []
+            for each_string in sentences:
+                el_sents = ru_sent_tokenize(each_string)
+                list_of_lengths.append(len(el_sents))
+
+                flat_sents_list += el_sents
+
+            sentences = flat_sents_list
+        # ###############################################################################
         if token_length_sorting:
-            # TODO
+            # TODO make as function decorator?
             # sort sentences by token length
             # and save initial order
-            # source_idxs, sentences = sorted(enumerate(sentences), key=lambda n, x: len(x.split()))
-            results = sorted(enumerate(sentences), key=lambda x: len(x[1].split()), reverse=True)
+            # TODO use nltk tokenizer insted of split? - no speed advantage
+            # results = sorted(enumerate(sentences), key=lambda x: len(x[1].split()), reverse=True)
+            results = sorted(enumerate(sentences), key=lambda x: len(word_tokenize(x[1])), reverse=True)
             source_idxs, sentences = zip(*results)
-            # now we need to build mapping of new sorting indexes into old
-            # to return results in the same order
 
+        # ###############################################################################
 
         start_dt = dt.datetime.now()
         anal_dicts = self.prepare_analysis_dict_for_sentences_batch(
@@ -285,23 +322,56 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
             sentence_hypothesis = self.make_fixes(each_data, min_advantage_treshold)
             # Letter caser:
             # restore capitalization:
-            output_sentence_tokens = self._lettercaser([each_data['input_sentence'].split()],
-                                                       [sentence_hypothesis.split()])[0]
-            output_sentence = " ".join(output_sentence_tokens)
+            # output_sentence_tokens = self._lettercaser([each_data['input_sentence'].split()],
+            #                                            [sentence_hypothesis.split()])[0]
+            output_sentence_tokens = self._lettercaser([word_tokenize(each_data['input_sentence'])],
+                                                       [word_tokenize(sentence_hypothesis)])[0]
+
+            # output_sentence = " ".join(output_sentence_tokens)
+            output_sentence = detokenize(output_sentence_tokens)
 
             # output_sentences.append(sentence_hypothesis)
             output_sentences.append(output_sentence)
         fin_dt = dt.datetime.now()
         print("datetimes. making_fixes: %s" % (str(fin_dt-middle_dt)))
         print("datetimes. total calculation time: %s" % str(fin_dt-start_dt))
+        # ###############################################################################
         # restore ordering:
+        # to return results in the same order
         if token_length_sorting:
             output_sentences_2 = [None]*len(sentences)
+            anal_dicts_sorted = [None]*len(sentences)
             for idx, each_sentence in enumerate(output_sentences):
                 output_sentences_2[source_idxs[idx]] = each_sentence
-
+                anal_dicts_sorted[source_idxs[idx]] = anal_dicts[idx]
+            anal_dicts = anal_dicts_sorted
             output_sentences = output_sentences_2
-        return output_sentences
+
+        # ###############################################################################
+        if multisentences:
+
+            merged_sentences = []
+            merged_anal_dicts = []
+            sent_offset = 0
+            for each_length in list_of_lengths:
+                # join each_length  of output sentences into one and continue
+                merged_sentence = " ".join(output_sentences[sent_offset:sent_offset+each_length])
+
+                merged_anal_dict_for_merged_sentences = anal_dicts[sent_offset:sent_offset+each_length]
+                sent_offset += each_length
+                merged_sentences.append(merged_sentence)
+                merged_anal_dicts.append(merged_anal_dict_for_merged_sentences)
+            output_sentences = merged_sentences
+            if supply_anal_dict:
+                anal_dicts = merged_anal_dicts
+
+        # ###############################################################################
+        if supply_anal_dict:
+            # TODO: anal_dicts has different sorting! Fix it?
+
+            return output_sentences, anal_dicts
+        else:
+            return output_sentences
 
     def prepare_analysis_dict_for_sentences_batch(self, sentences, max_tokens_count=None):
         """
@@ -317,6 +387,7 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
 
         # tokenize sentences
         tokenized_sentences = [self.lm.tokenize_sentence(sentence) for sentence in preprocessed_sentences]
+        tokenized_sentences_cased = [self.lm.tokenize_sentence(sentence) for sentence in sentences]
 
         # offset from the start of the batch
         batch_offset = 0
@@ -337,12 +408,28 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
             for relative_offset, each_elmo_data in enumerate(elmo_datas_mini_batch):
                 absolute_offset = batch_offset + relative_offset
                 # analyse sentence, atomic (token-token) hypotheses generation:
-                analysis_dict = self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(
-                    {
-                        # 'input_sentence': preprocessed_sentences[absolute_offset],
+                try:
+                    # analysis_dict = self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out(
+                    #     {
+                    #         # 'input_sentence': preprocessed_sentences[absolute_offset],
+                    #         'input_sentence': sentences[absolute_offset],
+                    #         'tokenized_input_sentence': tokenized_sentences[absolute_offset]},
+                    #     each_elmo_data)
+
+                    analysis_dict = self.elmo_analysis_with_probable_candidates_reduction_dict_in_dict_out( {
                         'input_sentence': sentences[absolute_offset],
-                        'tokenized_input_sentence': tokenized_sentences[absolute_offset]},
-                    each_elmo_data)
+                        'tokenized_input_sentence': tokenized_sentences[absolute_offset],
+                        'tokenized_cased_input_sentence': tokenized_sentences_cased[absolute_offset]
+
+                    }, each_elmo_data)
+                except Exception as e:
+                    print(e)
+                    print(absolute_offset)
+                    print(len(sentences))
+                    import ipdb; ipdb.set_trace()
+                    print("1")
+
+
                 # multi-token - token hypotheses generation
                 merged_tokens_hypotheses_dict = self.generate_Nto1_hypotheses(
                     analysis_dict['tokenized_input_sentence'], each_elmo_data)
@@ -352,7 +439,7 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
             # increment offset with size of batch
             batch_offset += len(mini_batch_tokenized_sents)
             fin_dt = dt.datetime.now()
-            print("datetimes. calculation of elmo analysis matricies in minibatch: %s, generating_hypotheses: %s" % (
+            print("Calc elmo matricies in minibatch: %s, generating_hypotheses: %s" % (
             str(middle_dt - start_dt), str(fin_dt - middle_dt)))
         return analysis_dicts
 
