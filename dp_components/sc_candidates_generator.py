@@ -46,7 +46,7 @@ class SpellingCorrectionCandidatesGenerator():
         elif token in ["оч"]:
             w_forms.append("очень")
             scores.append(self.FREQUENT_ERRORS_DECREMENT_SCORE)
-        elif token in ["што", "шо", "чо", "чё"]:
+        elif token in ["што", "шо", "чо", "чё", "че"]:
             w_forms.append("что")
             scores.append(self.FREQUENT_ERRORS_DECREMENT_SCORE)
         elif token in ["ваще", "воще"]:
@@ -73,6 +73,7 @@ class SpellingCorrectionCandidatesGenerator():
 
         return scores, w_forms
 
+    # deprecated
     def variate_with_prefixes(self, candidates, error_scores):
         """
         Given a tokens candidates this method enriches the space of candidates with prefixed variants
