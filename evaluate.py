@@ -297,9 +297,14 @@ def evaluate_spelling_corrector(source_sents, correct_sents, answer_sents):
     :param answer_sents:
     :return:
     """
-    source_sents = [extract_words(sent) for sent in source_sents if sent.strip() != ""]
-    correct_sents = [extract_words(sent) for sent in correct_sents if sent.strip() != ""]
-    answer_sents = [extract_words(sent) for sent in answer_sents if sent.strip() != ""]
+    # import ipdb; ipdb.set_trace()
+
+    # source_sents = [extract_words(sent) for sent in source_sents if sent.strip() != ""]
+    # correct_sents = [extract_words(sent) for sent in correct_sents if sent.strip() != ""]
+    # answer_sents = [extract_words(sent) for sent in answer_sents if sent.strip() != ""]
+    source_sents = [extract_words(sent) for sent in source_sents]
+    correct_sents = [extract_words(sent) for sent in correct_sents]
+    answer_sents = [extract_words(sent) for sent in answer_sents]
 
     etalon_corrections = dict()
     answer_corrections = dict()
@@ -316,7 +321,10 @@ def evaluate_spelling_corrector(source_sents, correct_sents, answer_sents):
         etalon_correction = etalon_corrections.get(triple)
         if etalon_correction == answer_correction:
             TP += 1
-    precision = TP / len(answer_corrections)
+    if len(answer_corrections)>0:
+        precision = TP / len(answer_corrections)
+    else:
+        precision = 0
     recall = TP / len(etalon_corrections)
     f_measure = 2 * precision * recall / (precision + recall)
     print("Precision={0:.2f} Recall={1:.2f} FMeasure={2:.2f}".format(
@@ -328,7 +336,7 @@ def evaluate_spelling_corrector(source_sents, correct_sents, answer_sents):
         'recall': recall,
         'f_measure': f_measure,
         'answer_corrections': answer_corrections,
-        'etalon_corrections':etalon_corrections
+        'etalon_corrections': etalon_corrections
     }
 
     # if output_differences:
@@ -400,12 +408,15 @@ if __name__ == "__main__":
     with open(source_file, "r", encoding="utf8") as fsource,\
             open(correct_file, "r", encoding="utf8") as fcorr,\
             open(answer_file, "r", encoding="utf8") as fans:
-        source_sents = [extract_words(line.strip())
-                        for line in fsource.readlines() if line.strip() != ""]
-        correct_sents = [extract_words(line.strip())
-                         for line in fcorr.readlines() if line.strip() != ""]
-        answer_sents = [extract_words(line.strip())
-                        for line in fans.readlines() if line.strip() != ""]
+        # source_sents = [extract_words(line.strip())
+        #                 for line in fsource.readlines() if line.strip() != ""]
+        # correct_sents = [extract_words(line.strip())
+        #                  for line in fcorr.readlines() if line.strip() != ""]
+        # answer_sents = [extract_words(line.strip())
+        #                 for line in fans.readlines() if line.strip() != ""]
+        source_sents = [line.strip() for line in fsource.readlines() if line.strip() != ""]
+        correct_sents = [line.strip() for line in fcorr.readlines() if line.strip() != ""]
+        answer_sents = [line.strip() for line in fans.readlines() if line.strip() != ""]
 
     results_dict = evaluate_spelling_corrector(source_sents, correct_sents, answer_sents)
     answer_corrections = results_dict['answer_corrections']
