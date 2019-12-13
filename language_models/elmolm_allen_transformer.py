@@ -5,19 +5,23 @@ from allennlp.data.tokenizers.token import Token
 from allennlp.modules.elmo import batch_to_ids
 import torch
 import numpy as np
+import os
+#
+SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+# /home/alx/Cloud/spell_corr/py_spelling_corrector:
+ROOT_DIR = os.path.dirname(SELF_DIR)
 
 
-class AllenElmoTransformerLM(BaseELMOLM):
+class AllenElmoTransformerLM2(BaseELMOLM):
     """
     Implementation of ELMO LM on torch, AllenNLP and with Transformers layer
+    Here we actually load the model from model.tar.gz file
     """
-
     def __init__(self):
         self.load_model()
 
         # read vocabulary
-        #         path_to_vocab = ROOT_DIR + "/bidirectional_lms/elmo_ru_news/tokens_set.txt"
-        self.path_to_vocab = "/home/alx/Cloud/spell_corr/allennlp_lms/vocabulary/tokens.txt"
+        self.path_to_vocab = SELF_DIR + "/elmo_transformer_pretrained_models/vocabulary/tokens.txt"
         self._lm_vocab = UnicodeCharsVocabulary(self.path_to_vocab, 200)
 
         self.words = self._lm_vocab._id_to_word
@@ -27,76 +31,21 @@ class AllenElmoTransformerLM(BaseELMOLM):
         self.IDX_UNK_TOKEN = self.word_index.get("<UNK>")
 
     def load_model(self):
-        import os
-        pwd = "/home/alx/Cloud/spell_corr/allennlp_lms"
-        os.environ['BIDIRECTIONAL_LM_DATA_PATH'] = "%s'/large_ru_texts_dataset'" % pwd
-        os.environ['BIDIRECTIONAL_LM_TRAIN_PATH'] = "$BIDIRECTIONAL_LM_DATA_PATH'/train/*'"
-        os.environ['BIDIRECTIONAL_LM_VOCAB_PATH'] = "%s/vocabulary" % pwd
+        from allennlp.models.archival import load_archive
 
-        from allennlp.common import Params
-        from allennlp.training.trainer_pieces import TrainerPieces
-        params = Params.from_file(
-            "/home/alx/Cloud/spell_corr/allennlp_lms/configs/tranformer_lm_bidirectional_language_model.jsonnet")
-        pieces = TrainerPieces.from_params(params, "/home/alx/Cloud/spell_corr/allennlp_lms/temp")
-        self._pieces_model = pieces.model
+        path_to_model_targz = SELF_DIR + "/elmo_transformer_pretrained_models/model_2.tar.gz"
+        archive_obj = load_archive(path_to_model_targz)
+        self._elmo_model = archive_obj.model
 
         self._ff = torch.nn.Linear(512, 1000001)
         # ff.cuda()
         self._ff.load_state_dict(
-            {'weight': self._pieces_model._softmax_loss._modules['softmax_w']._parameters['weight'],
-             'bias': self._pieces_model._softmax_loss._modules['softmax_b']._parameters['weight'][:,
+            {'weight': self._elmo_model._softmax_loss._modules['softmax_w']._parameters['weight'],
+             'bias': self._elmo_model._softmax_loss._modules['softmax_b']._parameters['weight'][:,
                      0]
              },
             strict=False)
         self._softmax_fn = torch.nn.Softmax(dim=3)
-
-    #         print(pieces.model)
-    #         pieces.model._softmax_loss._modules['softmax_w']._parameters['weight']
-    #         pieces.model._softmax_loss._modules['softmax_w']._parameters['weight'].shape
-    #         # /bias exists but it is zero
-    #         pieces.model._softmax_loss._modules['softmax_b']._parameters['weight']
-    # options_file = "https://allennlp.s3.amazonaws.com/models/elmo/2x4096_512_2048cnn_2xhighway/elmo_2x4096_512_2048cnn_2xhighway_options.json"
-    # options_file = "http://files.deeppavlov.ai/lang_models/sexy_elmo/elmo_2x4096_512_2048cnn_2xhighway_options.json"
-    #         options_file = "http://files.deeppavlov.ai/lang_models/sexy_elmo/options.json"
-    # weight_file = "https://allennlp.s3.amazonaws.com/models/elmo/2x4096_512_2048cnn_2xhighway/elmo_2x4096_512_2048cnn_2xhighway_weights.hdf5"
-
-    # custom weights
-    # weight_file = "http://files.deeppavlov.ai/lang_models/sexy_elmo/weights.hdf5"
-    # weight_file = "http://files.deeppavlov.ai/lang_models/sexy_elmo/weights_epoch_n_2.hdf5"
-    #         weight_file = "http://files.deeppavlov.ai/lang_models/sexy_elmo/weights_epoch_n_3.hdf5"
-    # weight_file = "http://files.deeppavlov.ai/lang_models/sexy_elmo/weights_epoch_n_4.hdf5"
-
-    # allennlp realizatioon with updating states
-    # self._elmobilm = _ElmoBiLm(options_file, weight_file)
-    # realizatioon without updating states
-    #         self._elmobilm = ELMOBiLM(options_file, weight_file)
-    #         self._elmobilm.cuda()
-
-    #         # TODO load head:
-    #         # self._ff = torch.nn.Linear(1024, 1000000)
-    #         self._ff = torch.nn.Linear(512, 1000000)
-    #         self._ff.cuda()
-
-    #         # TODO refactor
-    #         # Load checkpoint of TF:
-    #         base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news"
-    #         ckpt_prefixed_path = base_path + "/model.ckpt-0003"
-    #         # metafile_path = base_path + "/model.ckpt-0003.meta"
-
-    #         # tf.train.list_variables(ckpt_prefixed_path)
-
-    #         # matrix which holds embedding into words projection
-    #         emb2words_w_matrix = tf.train.load_variable(ckpt_prefixed_path, 'lm/softmax/W')
-
-    #         # torch_w = torch.from_numpy(np.concatenate((softmax_w, softmax_w), axis=1))
-    #         torch_w = torch.from_numpy(emb2words_w_matrix)
-
-    #         emb2words_bias = tf.train.load_variable(ckpt_prefixed_path, 'lm/softmax/b')
-    #         self._ff.load_state_dict(
-    #             {'weight': torch_w, 'bias': torch.from_numpy(emb2words_bias)},
-    #             strict=False)
-
-    #         self._softmax_fn = torch.nn.Softmax(dim=3)
 
     def elmo_lm(self, tokenized_sentences):
         """
@@ -105,38 +54,11 @@ class AllenElmoTransformerLM(BaseELMOLM):
         :return: tensor BATCH_SIZE x TOKENS_NUM x 2 x 1000001
         """
 
-        #         lm_model_file = "/home/alx/Cloud/spell_corr/allennlp_lms/pretrained_models/model.tar.gz"
-
-        #         sentence = "Дождь идет на улице ."
-        #         tokens = [Token(word) for word in sentence.split()]
-
-        #         lm_embedder = BidirectionalLanguageModelTokenEmbedder(
-        #             archive_file=lm_model_file,
-        #             dropout=0.2,
-        #             bos_eos_tokens=["<S>", "</S>"],
-        #             remove_bos_eos=True,
-        #             requires_grad=False
-        #         )
-
-        indexer = ELMoTokenCharactersIndexer()
-        #         vocab = lm_embedder._lm.vocab
-        vocab = self._lm_vocab
-        character_indices = []
-
         character_indices = batch_to_ids(tokenized_sentences)
-
-        #         for each_tok_sent in tokenized_sentences:
-        #             torch_tokenization = [Token(word) for word in each_tok_sent]
-        #             character_indices.append(
-        #                 indexer.tokens_to_indices(torch_tokenization, vocab, "elmo")["elmo"])
-
-        # Batch of size 1
-        #         print(tokenized_sentences)
-        #         print(character_indices)
 
         indices_tensor = torch.LongTensor(character_indices)
 
-        res = self._pieces_model({'token_characters': indices_tensor})
+        res = self._elmo_model({'token_characters': indices_tensor})
 
         forward_embeddings, backward_embeddings = res['lm_embeddings'].chunk(2, -1)
 
@@ -146,71 +68,6 @@ class AllenElmoTransformerLM(BaseELMOLM):
         softmaxed_output = self._softmax_fn(stacked_output)
 
         return softmaxed_output.detach().numpy()
-
-    #         character_ids = batch_to_ids(tokenized_sentences)
-    #         # print(character_ids.shape)
-    #         # print(character_ids)
-    #         character_ids = character_ids.cuda()
-    #         elmo_output = self._elmobilm(character_ids)
-    #         # TODO check correctness:
-    #         last_layer_activations = elmo_output['activations'][2]
-    #         # results = self._ff(last_layer_activations)
-    #         # print("last_layer_activations:")
-    #         # print(last_layer_activations)
-    #         # print(last_layer_activations.shape)
-    #         # pre_last_layer_activations = elmo_output['activations'][1]
-    #         # print("pre_last_layer_activations:")
-    #         # print(pre_last_layer_activations)
-    #         # print(pre_last_layer_activations.shape)
-
-    #         # base_layer_activations = elmo_output['activations'][0]
-    #         # print("base_layer_activations :")
-    #         # print(base_layer_activations )
-    #         # print(base_layer_activations .shape)
-    #         # print(lstm_outputs[0][0].shape)
-
-    #         # left_activations, right_activations = torch.split(last_layer_activations, 512, dim=1)
-    #         splitted_tensors = torch.split(last_layer_activations, 512, dim=2)
-    #         # import ipdb; ipdb.set_trace()
-
-    #         assert len(splitted_tensors) == 2
-    #         # print("len(splitted_tensors)")
-    #         # print(len(splitted_tensors))
-    #         left_activations = splitted_tensors[0]
-    #         right_activations = splitted_tensors[1]
-    #         left_results = self._ff(left_activations)
-    #         right_results = self._ff(right_activations)
-    #         stacked_output = torch.stack((left_results, right_results), dim=2)
-    #         softmaxed_output = self._softmax_fn(stacked_output)
-
-    #         # outputs:
-    #         the_first_half = last_layer_activations[:, :, :512]
-    #         the_right_half = last_layer_activations[:, :, 512:]
-
-    #         tfh = the_first_half.cpu().detach().numpy()
-    #         trh = the_right_half.cpu().detach().numpy()
-    #         # print('min, max')
-    #         # print(min(tfh), max(tfh))
-    #         # print('std, mean, sum')
-    #         # print(np.std(tfh),
-    #         #       np.mean(tfh), np.sum(tfh))
-    #         # print("the_first_half:")
-    #         # print(tfh)
-    #         # print(tfh.shape)
-    #         # print("the_right_half:")
-    #         # print(trh)
-    #         # print(trh.shape)
-    #         # # lla = last_layer_activations.cpu().detach().numpy()
-    #         # print("the_right_half Activations")
-    #         # lla_ravel = trh.ravel()
-    #         # for each_num in lla_ravel:
-    #         #     print(each_num, end=", ")
-    #         # print("___")
-    #         # # just test if it print all values
-    #         # print(lla_ravel)
-    #         # print("___")
-
-    #         return softmaxed_output.cpu().detach().numpy()
 
     def _estimate_likelihood_minibatch(self, sentences_batch, preserve_states=True):
         """
@@ -363,60 +220,3 @@ class AllenElmoTransformerLM(BaseELMOLM):
             #             print("_")
             results_batch.append(np.array([left_probas, right_probas]))
         return results_batch
-
-
-class AllenElmoTransformerLM2(AllenElmoTransformerLM):
-    """
-    Here we actually load the model from model.tar.gz file
-    """
-    def __init__(self):
-        self.load_model()
-
-        # read vocabulary
-        #         path_to_vocab = ROOT_DIR + "/bidirectional_lms/elmo_ru_news/tokens_set.txt"
-        self.path_to_vocab = "/home/alx/Cloud/spell_corr/allennlp_lms/vocabulary/tokens.txt"
-        self._lm_vocab = UnicodeCharsVocabulary(self.path_to_vocab, 200)
-
-        self.words = self._lm_vocab._id_to_word
-        self.word_index = {word: i for i, word in enumerate(self.words)}
-
-        # index of unknown token:
-        self.IDX_UNK_TOKEN = self.word_index.get("<UNK>")
-
-    def load_model(self):
-        from allennlp.models.archival import load_archive
-        path_to_model_targz = "/home/alx/Cloud/spell_corr/allennlp_lms/pretrained_models/model_1.tar.gz"
-        archive_obj = load_archive(path_to_model_targz)
-        self._elmo_model = archive_obj.model
-
-        self._ff = torch.nn.Linear(512, 1000001)
-        # ff.cuda()
-        self._ff.load_state_dict(
-            {'weight': self._elmo_model._softmax_loss._modules['softmax_w']._parameters['weight'],
-             'bias': self._elmo_model._softmax_loss._modules['softmax_b']._parameters['weight'][:,
-                     0]
-             },
-            strict=False)
-        self._softmax_fn = torch.nn.Softmax(dim=3)
-
-    def elmo_lm(self, tokenized_sentences):
-        """
-        Main method which returns an ELMO matrix
-        :param tokenized_sentences: list of tokenized sentences.
-        :return: tensor BATCH_SIZE x TOKENS_NUM x 2 x 1000001
-        """
-
-        character_indices = batch_to_ids(tokenized_sentences)
-
-        indices_tensor = torch.LongTensor(character_indices)
-
-        res = self._elmo_model({'token_characters': indices_tensor})
-
-        forward_embeddings, backward_embeddings = res['lm_embeddings'].chunk(2, -1)
-
-        left_results = self._ff(forward_embeddings)
-        right_results = self._ff(backward_embeddings)
-        stacked_output = torch.stack((left_results, right_results), dim=2)
-        softmaxed_output = self._softmax_fn(stacked_output)
-
-        return softmaxed_output.detach().numpy()
