@@ -12,8 +12,6 @@ import os
 SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 # /home/alx/Cloud/spell_corr/py_spelling_corrector:
 ROOT_DIR = os.path.dirname(SELF_DIR)
-# sys.path.append(ROOT_DIR)
-# os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ruler_bot.settings")
 
 class ELMOLMTFHub(BaseELMOLM):
     """

@@ -148,6 +148,7 @@ def generate_operation_costs_dict(alphabet):
         },
         "что": {
             "што": 0.3,
+            "шта": 0.3,
             "шо": 0.3,
             "чо": 0.2,
             # "чё": 0.5,
