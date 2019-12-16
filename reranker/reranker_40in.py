@@ -3,6 +3,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import LogisticRegression
 import pprint
 from spelling_correction_models.elmo_40in_spelling_corrector.helper_fns import SCAnalysisDictManager
+from sklearn.externals import joblib
 
 
 class ReRanker40inRegressor():
@@ -24,9 +25,11 @@ class ReRanker40inRegressor():
 
     # TODO saving loading functionality
 
-    def predict_fixes(self, sentence_data_analysis_dict):
+    def predict_fixes_tokens(self, sentence_data_analysis_dict):
         """
-        Given data anlysis dict it outputs sentence hypothesis
+        given data anlysis dict it outputs sentence hypothesis as sequence of tokens
+        :param sentence_data_analysis_dict: DataAnalysisDict object (dict)
+        :return: list of token strings
         """
         winning_tokens = []
         total_length = len(sentence_data_analysis_dict['tokenized_input_sentence'])
@@ -72,9 +75,17 @@ class ReRanker40inRegressor():
                 winning_tokens.append(flat_hypotheses_list[0]['token_str'])
             else:
                 raise Exception("Zero hypotheses?")
+        # todo add check of multispan!?
+        return winning_tokens
 
-            # todo add check of multispan!
-        # todo detokenize:
+    def predict_fixes(self, sentence_data_analysis_dict):
+        """
+        Given data anlysis dict it outputs sentence hypothesis
+
+        Uses simple detokenization
+        """
+
+        winning_tokens = self.predict_fixes_tokens(sentence_data_analysis_dict)
         final_str = " ".join(winning_tokens)
         print(final_str)
         return final_str
@@ -143,6 +154,14 @@ class ReRanker40inRegressor():
 
     # ##################################################################################
     # sentence level
+    def prepare_dataset_from_data_anal_dicts(self, annotated_data_anal_dicts):
+        features = []
+        labels = []
+        for each_dad in annotated_data_anal_dicts:
+            minibatch_features, minibatch_labels = self._prepare_sentence_training_data(each_dad)
+            features.extend(minibatch_features)
+            labels.extend(minibatch_labels)
+        return features, labels
 
     def _prepare_sentence_training_data(self, sentence_data_analysis_dict):
         """
@@ -215,88 +234,6 @@ class ReRanker40inRegressor():
             features.extend(tokfront_features)
             labels.extend(tokfront_labels)
         return features, labels
-
-    def prepare_dataset_from_data_anal_dicts(self, annotated_data_anal_dicts):
-        features = []
-        labels = []
-        for each_dad in annotated_data_anal_dicts:
-            minibatch_features, minibatch_labels = self._prepare_sentence_training_data(each_dad)
-            features.extend(minibatch_features)
-            labels.extend(minibatch_labels)
-        return features, labels
-
-    def fit_sentence(self, sentence_data_analysis_dict):
-        """
-        Method of fitting the Regressor according to sentence data anbalsysis dict and information about etalons
-
-        sentence_data: analysis dict with etalons markup?
-        """
-        for current_token_idx, each_tok in enumerate(
-                sentence_data_analysis_dict['tokenized_input_sentence']):
-            if current_token_idx == 0: continue
-
-            suffixes_hypotheses = SCAnalysisDictManager.filter_by_start_index(
-                data_anal_dict=sentence_data_analysis_dict, start_index=current_token_idx)
-
-            #################################################################
-            # TODO check that we are not under multitoken hypothesis segment ?
-            flat_hypotheses_list = []
-            for each_segment_hypotheses_hub in suffixes_hypotheses:
-                flat_hypotheses_list.extend(each_segment_hypotheses_hub['top_k_candidates'])
-            # check that etalon exists in set, and find the best fitting etalon
-            # (it possible that we have many etalons on the stage, but they must be of
-            # different token length).
-            etalon_hypothesis_feature_dict = None
-            for idx, each_item in enumerate(flat_hypotheses_list):
-                if 'etalon_ref' in each_item:
-                    if etalon_hypothesis_feature_dict:
-                        # not none!
-                        print("flat_hypotheses_list:")
-                        print(pprint.pprint(flat_hypotheses_list))
-                        print("sentence_data_analysis_dict")
-                        print(sentence_data_analysis_dict)
-                        if isinstance(etalon_hypothesis_feature_dict['etalon_ref'],
-                                      list) and isinstance(each_item['etalon_ref'], int):
-                            pass
-                        elif isinstance(each_item['etalon_ref'], list) and isinstance(
-                                etalon_hypothesis_feature_dict['etalon_ref'], int):
-                            # select new etalon which is longer:
-                            etalon_hypothesis_feature_dict = each_item
-                    #                         raise Exception("Multiple etalons for the step %d" % (current_token_idx))
-
-                    # TODO select the longest
-                    # debug me?
-                    else:
-                        etalon_hypothesis_feature_dict = each_item
-                etalon_index = idx
-            if not etalon_hypothesis_feature_dict:
-                print("No Etalon Found current_token_index = %d, each_tok= %s" % (
-                    current_token_idx, each_tok))
-                print("skipping training step")
-                continue
-                # can not fit/ skip sentence?
-            # ok etalon found we can train
-            if len(flat_hypotheses_list) <= 1:
-                continue
-            #################################################################
-            preprocessed_features = list(
-                map(ReRanker40inRegressor.preprocess_feature_dict, flat_hypotheses_list))
-            #             print("preprocessed_features")
-            #             pprint.pprint(preprocessed_features)
-            # binarize features
-            binarized_features = list(
-                map(ReRanker40inRegressor.binarize_features, preprocessed_features))
-            #             print("kek")
-            #             print(ReRanker40inRegressor.binarize_features(list(preprocessed_features)[0]))
-            #             print("binarized_features")
-            #             print(list(binarized_features))
-
-            print("fitting")
-            print("binarized_features:")
-            print(binarized_features)
-            self.reg = self.fit_token_front(binarized_features, etalon_index)
-
-    #     def prepare_dataset_from_annotated_data_anal_dicts(self, annotated_data_anal_dicts):
 
     @staticmethod
     def preprocess_feature_dict(feature_dict):
@@ -390,3 +327,19 @@ class ReRanker40inRegressor():
     def binarize_features(feature_dict):
         """Just remove labels"""
         return np.array([each_v for each_k, each_v in feature_dict.items()])
+
+    def save(self, filename='/tmp/reranker_40in.joblib.pkl'):
+        """
+        save model of reranker
+        :return:
+        """
+        return joblib.dump(self.reg, filename, compress=9)
+
+    def load(self, filename='/tmp/reranker_40in.joblib.pkl'):
+        """
+        Load model of rernaker
+        :return:
+        """
+        reg = joblib.load(filename)
+        self.reg = reg
+        return self
