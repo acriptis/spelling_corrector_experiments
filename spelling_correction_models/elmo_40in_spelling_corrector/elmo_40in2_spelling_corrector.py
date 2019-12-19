@@ -450,3 +450,5 @@ class ELMO40in2SpellingCorrector(ELMO40inSpellingCorrector):
 
         return results
 
+    def __call__(self, *args, **kwargs):
+        return self.process_sentences_batch(*args, **kwargs)
