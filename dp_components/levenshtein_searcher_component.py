@@ -91,8 +91,8 @@ class LevenshteinSearcherComponent(Component):
 
 def generate_operation_costs_dict(alphabet):
     from dp_components.levenshtein_searcher import SegmentTransducer
-    from utils.recursive_dict_merge import recursive_dict_merge
-    from utils.karta_slov_helper_fns import generate_karta_slov_costs_dict
+    from utilities.recursive_dict_merge import recursive_dict_merge
+    from utilities.karta_slov_helper_fns import generate_karta_slov_costs_dict
 
     # make default costs dict without language specific substrings subtitution costs
     ops_costs = SegmentTransducer.make_default_operation_costs(alphabet)
