@@ -227,7 +227,7 @@ class ELMO40inSpellingCorrector():
             #download it, then read it again
             from deeppavlov.core.data.utils import download
 
-            download(URL_TO_WORDFORMS, path_to_dictionary, force_download=False)
+            download(path_to_dictionary, URL_TO_WORDFORMS, force_download=False)
             with open(path_to_dictionary, "r") as dict_file:
                 # to avoid confusion: words_dict is a list of strings (which are words of
                 # language's dictionary)
