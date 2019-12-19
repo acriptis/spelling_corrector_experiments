@@ -214,14 +214,24 @@ class ELMO40inSpellingCorrector():
         :return: instance of spelling correction candidates generator
         """
         # TODO refactor with dynamic dictionary
-        path_to_dictionary = self._data_path + "/compreno_wordforms.txt"
+        path_to_dictionary = self._data_path + "/wordforms.txt"
+        URL_TO_WORDFORMS = "http://files.deeppavlov.ai/spelling_correctors/wordforms.txt"
+        try:
+            # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
+            # TODO download if no files
+            with open(path_to_dictionary, "r") as dict_file:
+                # to avoid confusion: words_dict is a list of strings (which are words of
+                # language's dictionary)
+                self.words_dict = dict_file.read().splitlines()
+        except Exception as e:
+            #download it, then read it again
+            from deeppavlov.core.data.utils import download
 
-        # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
-
-        with open(path_to_dictionary, "r") as dict_file:
-            # to avoid confusion: words_dict is a list of strings (which are words of
-            # language's dictionary)
-            self.words_dict = dict_file.read().splitlines()
+            download(URL_TO_WORDFORMS, path_to_dictionary, force_download=False)
+            with open(path_to_dictionary, "r") as dict_file:
+                # to avoid confusion: words_dict is a list of strings (which are words of
+                # language's dictionary)
+                self.words_dict = dict_file.read().splitlines()
 
         lsc = LevenshteinSearcherComponent(words=self.words_dict,
                                            max_distance=LEVENSHTEIN_MAX_DIST,
