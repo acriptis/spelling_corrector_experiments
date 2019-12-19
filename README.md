@@ -1,8 +1,8 @@
 # Spelling Corrector Experimental models
-This is experimental project for research of spelling corrector models
-We researched different configurations of systems for spelling corrections:
+This is experimental project for research of spelling corrector models.
+We've researched several configurations of systems for spelling corrections:
 
-Language model:
+Language model (all based on ELMO model):
 - TFKuznetsovELMO (Best by quality but slow)
 - PyTorchELMO (Good for speed and good for quality)
 - TransformerELMO (Nice for speed but bad quality)
