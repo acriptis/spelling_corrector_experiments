@@ -4,6 +4,7 @@ from language_models.base_elmo_lm import BaseELMOLM
 
 
 class ELMOLM(BaseELMOLM):
+    """ELMO40inKuz LM"""
     # TODO merge with ELMO_inference!
 
     def __init__(self, config_dict):
