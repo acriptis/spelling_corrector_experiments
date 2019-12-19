@@ -10,7 +10,10 @@ class ELMOLM(BaseELMOLM):
     def __init__(self, config_dict):
         #         tf.compat.v1.random.set_random_seed(1234)
         # self.elmo_lm = build_model(config_dict, download=True)
-        self.elmo_lm = build_model(config_dict, download=False)
+        try:
+            self.elmo_lm = build_model(config_dict, download=False)
+        except Exception as e:
+            self.elmo_lm = build_model(config_dict, download=True)
         self.words = self.elmo_lm.pipe[-1][-1].get_vocab()
         self.word_index = {word: i for i, word in enumerate(self.words)}
         self.INIT_STATE_OF_ELMO = self.elmo_lm.pipe[-1][-1].init_states
