@@ -34,6 +34,9 @@ LEVENSHTEIN_MAX_DIST = 1.0
 # out of vocabulary penalty
 OOV_PENALTY = -1.0
 
+# url where file with wordforms for candidates generator:
+URL_TO_WORDFORMS = "http://files.deeppavlov.ai/spelling_correctors/wordforms.txt"
+
 
 def clean_dialog16_sentences_from_punctuation(sentences):
     """
@@ -215,7 +218,7 @@ class ELMO40inSpellingCorrector():
         """
         # TODO refactor with dynamic dictionary
         path_to_dictionary = self._data_path + "/wordforms.txt"
-        URL_TO_WORDFORMS = "http://files.deeppavlov.ai/spelling_correctors/wordforms.txt"
+
         try:
             # path_to_dictionary = DATA_PATH + "russian_words_vocab.dict"
             # TODO download if no files
