@@ -59,7 +59,8 @@ class ELMOLMTorch(BaseELMOLM):
         ##############################################################
         # TODO refactor
         # Load checkpoint of TF:
-        base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news"
+        # base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news"
+        base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news/elmo_weights_ckpt3"
         ckpt_prefixed_path = base_path + "/model.ckpt-0003"
 
         # metafile_path = base_path + "/model.ckpt-0003.meta"
@@ -69,17 +70,13 @@ class ELMOLMTorch(BaseELMOLM):
 
         except Exception as e:
             #download it, then read it again
-            from deeppavlov.core.data.utils import download
+            # from deeppavlov.core.data.utils import download
             from deeppavlov.core.data.utils import download_decompress
             # TODO download all 3 files of checkpoint
             CKPTS_URL = "http://files.deeppavlov.ai/spelling_crrectors/elmo_weights_ckpt3.tar.gz"
             download_decompress(CKPTS_URL, base_path)
             emb2words_w_matrix = tf.train.load_variable(ckpt_prefixed_path, 'lm/softmax/W')
         ##############################################################
-
-        # tf.train.list_variables(ckpt_prefixed_path)
-
-
 
         # torch_w = torch.from_numpy(np.concatenate((softmax_w, softmax_w), axis=1))
         torch_w = torch.from_numpy(emb2words_w_matrix)
