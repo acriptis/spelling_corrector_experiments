@@ -36,7 +36,7 @@ then you can launch tests:
 `python tests/test_spelling_correctors.py`
 
 but it requires about 30GB of RAM and loads disck space (model ELMO40inKuz consu,es about 4.5GB of disk space,
-TorchELMO40in model consumes about 3GB of disk space)
+TorchELMO40in model consumes about 5GB of disk space)
 (But it loads all models, )
 
 # As-Server usage
