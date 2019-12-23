@@ -60,7 +60,8 @@ class ELMOLMTorch(BaseELMOLM):
         # TODO refactor
         # Load checkpoint of TF:
         # base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news"
-        base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news/elmo_weights_ckpt3"
+        # base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news/elmo_weights_ckpt3"
+        base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news/elmo_weights_ckpt3/elmo_ru_news_uptrained_ckpt"
         ckpt_prefixed_path = base_path + "/model.ckpt-0003"
 
         # metafile_path = base_path + "/model.ckpt-0003.meta"
