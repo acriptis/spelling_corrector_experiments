@@ -27,15 +27,15 @@ class TestSpellingCorrectors(unittest.TestCase):
             spelling_correction_candidates_generator=self.sccg,
             mini_batch_size=1)
 
-    def test_spelling_corrector_ELMO40inKuz(self):
-        """
-        Test initilization of spelling corrector
-        download weights if it absent
-        :return:
-        """
-        result = self.elmo40in_deepkuz(["Мама мыло раму"])
-        self.assertEqual(result[0], "Мама мыла раму")
-        print(result)
+    # def test_spelling_corrector_ELMO40inKuz(self):
+    #     """
+    #     Test initilization of spelling corrector
+    #     download weights if it absent
+    #     :return:
+    #     """
+    #     result = self.elmo40in_deepkuz(["Мама мыло раму"])
+    #     self.assertEqual(result[0], "Мама мыла раму")
+    #     print(result)
 
 
     def test_spelling_corrector_TorchELMO40in(self):
