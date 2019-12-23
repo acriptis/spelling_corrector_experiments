@@ -73,7 +73,7 @@ class ELMOLMTorch(BaseELMOLM):
             # from deeppavlov.core.data.utils import download
             from deeppavlov.core.data.utils import download_decompress
             # TODO download all 3 files of checkpoint
-            CKPTS_URL = "http://files.deeppavlov.ai/spelling_crrectors/elmo_weights_ckpt3.tar.gz"
+            CKPTS_URL = "http://files.deeppavlov.ai/spelling_correctors/elmo_weights_ckpt3.tar.gz"
             download_decompress(CKPTS_URL, base_path)
             emb2words_w_matrix = tf.train.load_variable(ckpt_prefixed_path, 'lm/softmax/W')
         ##############################################################
