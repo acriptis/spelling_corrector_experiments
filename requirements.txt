@@ -1,3 +1,3 @@
 sortedcontainers==2.1.0
 bilm==0.1.post5
--e git+git://github.com/deepmipt/DeepPavlov.git@bidirectional_lms
+git+git://github.com/deepmipt/DeepPavlov.git@bidirectional_lms
