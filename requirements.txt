@@ -1,0 +1,3 @@
+sortedcontainers
+bilm
+pip install git+git://github.com/deepmipt/DeepPavlov.git@bidirectional_lms
