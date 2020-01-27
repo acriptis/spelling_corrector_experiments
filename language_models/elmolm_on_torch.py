@@ -57,6 +57,8 @@ class ELMOLMTorch(BaseELMOLM):
         self._ff = torch.nn.Linear(512, 1000000)
         self._ff.cuda()
         ##############################################################
+        ############# Load or Download model ########################
+        ##############################################################
         # TODO refactor
         # Load checkpoint of TF:
         # base_path = ROOT_DIR + "/bidirectional_lms/elmo_ru_news"
